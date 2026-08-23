@@ -1,0 +1,152 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"os"
+	"testing"
+	"time"
+
+	"scale-app/backend/services/core-api/internal/domain"
+	"scale-app/backend/services/core-api/internal/storage"
+)
+
+// These are integration tests against a real Postgres instance. They only
+// run when DATABASE_URL is set (e.g. in an environment with the
+// docker-compose Postgres service up), and skip cleanly otherwise so
+// `go test ./...` doesn't require a live database.
+func openTestStore(t *testing.T) *Store {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set; skipping postgres integration test")
+	}
+
+	ctx := context.Background()
+	s, err := Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(s.Close)
+
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate returned error: %v", err)
+	}
+	return s
+}
+
+func TestPostgresTenantRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	tenant := &domain.Tenant{ID: "t-" + t.Name(), Name: "Test Tenant", CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Tenants().Create(ctx, tenant); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	got, err := s.Tenants().Get(ctx, tenant.ID)
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if got.Name != tenant.Name {
+		t.Fatalf("Name = %q, want %q", got.Name, tenant.Name)
+	}
+}
+
+func TestPostgresTenantGetNotFound(t *testing.T) {
+	s := openTestStore(t)
+	if _, err := s.Tenants().Get(context.Background(), "does-not-exist"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("Get returned %v, want %v", err, storage.ErrNotFound)
+	}
+}
+
+func TestPostgresReceiptLineLifecycle(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	tenant := &domain.Tenant{ID: "t-" + t.Name(), Name: "Tenant", CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Tenants().Create(ctx, tenant); err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, ZitadelSubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Users().Create(ctx, user); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	product := &domain.Product{ID: "p-" + t.Name(), TenantID: tenant.ID, Name: "Tomatoes", PricePerKgCents: 499, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Products().Create(ctx, product); err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+	tx1 := &domain.Transaction{ID: "tx1-" + t.Name(), TenantID: tenant.ID, UserID: user.ID, ProductID: product.ID, ScaleID: "scale-1", WeightGrams: 1250, UnitPriceCents: 499, TotalPriceCents: 624, ScaleStatusCode: "1", CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	tx2 := &domain.Transaction{ID: "tx2-" + t.Name(), TenantID: tenant.ID, UserID: user.ID, ProductID: product.ID, ScaleID: "scale-1", WeightGrams: 500, UnitPriceCents: 499, TotalPriceCents: 250, ScaleStatusCode: "1", CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	for _, tx := range []*domain.Transaction{tx1, tx2} {
+		if err := s.Transactions().Create(ctx, tx); err != nil {
+			t.Fatalf("create transaction: %v", err)
+		}
+	}
+
+	receipt := &domain.Receipt{ID: "r-" + t.Name(), TenantID: tenant.ID, UserID: user.ID, Status: domain.ReceiptStatusDraft, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	_ = receipt.AddLine(tx1.ID)
+	if err := s.Receipts().Create(ctx, receipt); err != nil {
+		t.Fatalf("create receipt: %v", err)
+	}
+
+	got, err := s.Receipts().Get(ctx, receipt.ID)
+	if err != nil {
+		t.Fatalf("get receipt: %v", err)
+	}
+	if len(got.TransactionIDs) != 1 || got.TransactionIDs[0] != tx1.ID {
+		t.Fatalf("TransactionIDs = %v, want [%s]", got.TransactionIDs, tx1.ID)
+	}
+
+	_ = got.AddLine(tx2.ID)
+	if err := s.Receipts().Update(ctx, got); err != nil {
+		t.Fatalf("update receipt: %v", err)
+	}
+
+	number, err := s.Receipts().NextReceiptNumber(ctx, tenant.ID)
+	if err != nil {
+		t.Fatalf("NextReceiptNumber returned error: %v", err)
+	}
+	if err := got.Finalize(number, time.Now().UTC().Truncate(time.Microsecond)); err != nil {
+		t.Fatalf("Finalize returned error: %v", err)
+	}
+	if err := s.Receipts().Update(ctx, got); err != nil {
+		t.Fatalf("update finalized receipt: %v", err)
+	}
+
+	final, err := s.Receipts().Get(ctx, receipt.ID)
+	if err != nil {
+		t.Fatalf("get finalized receipt: %v", err)
+	}
+	if final.Status != domain.ReceiptStatusFinalized {
+		t.Fatalf("Status = %q, want %q", final.Status, domain.ReceiptStatusFinalized)
+	}
+	if len(final.TransactionIDs) != 2 {
+		t.Fatalf("TransactionIDs = %v, want 2 entries", final.TransactionIDs)
+	}
+	if final.Number != number {
+		t.Fatalf("Number = %d, want %d", final.Number, number)
+	}
+}
+
+func TestPostgresNextReceiptNumberIsSequential(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	tenant := &domain.Tenant{ID: "t-" + t.Name(), Name: "Tenant", CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Tenants().Create(ctx, tenant); err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+
+	n1, err := s.Receipts().NextReceiptNumber(ctx, tenant.ID)
+	if err != nil {
+		t.Fatalf("NextReceiptNumber returned error: %v", err)
+	}
+	n2, err := s.Receipts().NextReceiptNumber(ctx, tenant.ID)
+	if err != nil {
+		t.Fatalf("NextReceiptNumber returned error: %v", err)
+	}
+	if n2 != n1+1 {
+		t.Fatalf("sequence = %d, %d, want consecutive", n1, n2)
+	}
+}
