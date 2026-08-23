@@ -32,6 +32,17 @@ func openTestStore(t *testing.T) *Store {
 	if err := s.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate returned error: %v", err)
 	}
+
+	// Start every test from a clean slate: these tests use fixed,
+	// test-name-derived IDs, so leftover rows from a previous run against
+	// the same database would collide on primary keys.
+	_, err = s.pool.Exec(ctx, `TRUNCATE TABLE
+		receipt_lines, receipt_number_sequences, receipts, transactions, products, users, tenants
+		RESTART IDENTITY CASCADE`)
+	if err != nil {
+		t.Fatalf("truncate tables: %v", err)
+	}
+
 	return s
 }
 

@@ -1,0 +1,198 @@
+package auth
+
+import (
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/go-jose/go-jose/v4"
+)
+
+// fakeOIDCProvider is a minimal OIDC discovery + JWKS server backed by a
+// real RSA key pair, so ZitadelVerifier's actual signature/issuer/audience/
+// expiry verification logic is exercised end to end, not just its plumbing.
+type fakeOIDCProvider struct {
+	server     *httptest.Server
+	privateKey *rsa.PrivateKey
+	keyID      string
+}
+
+func newFakeOIDCProvider(t *testing.T) *fakeOIDCProvider {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate RSA key: %v", err)
+	}
+
+	p := &fakeOIDCProvider{privateKey: key, keyID: "test-key-1"}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", p.serveDiscovery)
+	mux.HandleFunc("/keys", p.serveJWKS)
+	p.server = httptest.NewServer(mux)
+	t.Cleanup(p.server.Close)
+	return p
+}
+
+func (p *fakeOIDCProvider) serveDiscovery(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"issuer":                 p.server.URL,
+		"jwks_uri":               p.server.URL + "/keys",
+		"authorization_endpoint": p.server.URL + "/authorize",
+		"token_endpoint":         p.server.URL + "/token",
+	})
+}
+
+func (p *fakeOIDCProvider) serveJWKS(w http.ResponseWriter, r *http.Request) {
+	set := jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
+		Key:       &p.privateKey.PublicKey,
+		KeyID:     p.keyID,
+		Algorithm: "RS256",
+		Use:       "sig",
+	}}}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(set)
+}
+
+type testClaims struct {
+	Issuer   string `json:"iss"`
+	Subject  string `json:"sub"`
+	Audience string `json:"aud"`
+	Expiry   int64  `json:"exp"`
+	IssuedAt int64  `json:"iat"`
+}
+
+// sign builds and signs a JWT with the given claims using the provider's
+// private key (or a mismatched throwaway key, for negative tests).
+func (p *fakeOIDCProvider) sign(t *testing.T, claims testClaims, useWrongKey bool) string {
+	t.Helper()
+	signingKey := p.privateKey
+	if useWrongKey {
+		var err error
+		signingKey, err = rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatalf("generate mismatched RSA key: %v", err)
+		}
+	}
+
+	signer, err := jose.NewSigner(
+		jose.SigningKey{Algorithm: jose.RS256, Key: signingKey},
+		(&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", p.keyID),
+	)
+	if err != nil {
+		t.Fatalf("create signer: %v", err)
+	}
+
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal claims: %v", err)
+	}
+
+	jws, err := signer.Sign(payload)
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	compact, err := jws.CompactSerialize()
+	if err != nil {
+		t.Fatalf("serialize token: %v", err)
+	}
+	return compact
+}
+
+const testAudience = "core-api"
+
+func TestZitadelVerifierAcceptsValidToken(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	ctx := t.Context()
+
+	verifier, err := NewZitadelVerifier(ctx, provider.server.URL, testAudience)
+	if err != nil {
+		t.Fatalf("NewZitadelVerifier returned error: %v", err)
+	}
+
+	token := provider.sign(t, testClaims{
+		Issuer:   provider.server.URL,
+		Subject:  "zitadel-subject-123",
+		Audience: testAudience,
+		Expiry:   time.Now().Add(time.Hour).Unix(),
+		IssuedAt: time.Now().Unix(),
+	}, false)
+
+	subject, err := verifier.Verify(ctx, token)
+	if err != nil {
+		t.Fatalf("Verify returned error: %v", err)
+	}
+	if subject != "zitadel-subject-123" {
+		t.Fatalf("subject = %q, want %q", subject, "zitadel-subject-123")
+	}
+}
+
+func TestZitadelVerifierRejectsExpiredToken(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	ctx := t.Context()
+
+	verifier, err := NewZitadelVerifier(ctx, provider.server.URL, testAudience)
+	if err != nil {
+		t.Fatalf("NewZitadelVerifier returned error: %v", err)
+	}
+
+	token := provider.sign(t, testClaims{
+		Issuer:   provider.server.URL,
+		Subject:  "zitadel-subject-123",
+		Audience: testAudience,
+		Expiry:   time.Now().Add(-time.Hour).Unix(),
+		IssuedAt: time.Now().Add(-2 * time.Hour).Unix(),
+	}, false)
+
+	if _, err := verifier.Verify(ctx, token); err == nil {
+		t.Fatal("expected an error for an expired token, got nil")
+	}
+}
+
+func TestZitadelVerifierRejectsWrongAudience(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	ctx := t.Context()
+
+	verifier, err := NewZitadelVerifier(ctx, provider.server.URL, testAudience)
+	if err != nil {
+		t.Fatalf("NewZitadelVerifier returned error: %v", err)
+	}
+
+	token := provider.sign(t, testClaims{
+		Issuer:   provider.server.URL,
+		Subject:  "zitadel-subject-123",
+		Audience: "some-other-api",
+		Expiry:   time.Now().Add(time.Hour).Unix(),
+		IssuedAt: time.Now().Unix(),
+	}, false)
+
+	if _, err := verifier.Verify(ctx, token); err == nil {
+		t.Fatal("expected an error for a token issued for a different audience, got nil")
+	}
+}
+
+func TestZitadelVerifierRejectsWrongSigningKey(t *testing.T) {
+	provider := newFakeOIDCProvider(t)
+	ctx := t.Context()
+
+	verifier, err := NewZitadelVerifier(ctx, provider.server.URL, testAudience)
+	if err != nil {
+		t.Fatalf("NewZitadelVerifier returned error: %v", err)
+	}
+
+	token := provider.sign(t, testClaims{
+		Issuer:   provider.server.URL,
+		Subject:  "zitadel-subject-123",
+		Audience: testAudience,
+		Expiry:   time.Now().Add(time.Hour).Unix(),
+		IssuedAt: time.Now().Unix(),
+	}, true) // signed with a key never published in the JWKS
+
+	if _, err := verifier.Verify(ctx, token); err == nil {
+		t.Fatal("expected an error for a token signed with an unknown key, got nil")
+	}
+}
