@@ -1,0 +1,57 @@
+name: Release tag
+
+# Tags every push that lands on master (in the intended git-flow, that's a
+# develop -> master merge) with the next patch version, e.g. v0.1.0 ->
+# v0.1.1. This trigger fires on any push to master, not specifically on
+# merges from develop — GitHub's push event doesn't cleanly distinguish
+# "merged from develop" from other ways commits can land on master.
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine next version
+        id: version
+        run: |
+          latest_tag=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          if [ -z "$latest_tag" ]; then
+            new_tag="v0.1.0"
+          else
+            version="${latest_tag#v}"
+            major="${version%%.*}"
+            rest="${version#*.}"
+            minor="${rest%%.*}"
+            patch="${rest#*.}"
+            major=$((10#$major))
+            minor=$((10#$minor))
+            patch=$((10#$patch))
+            new_tag="v${major}.${minor}.$((patch + 1))"
+          fi
+          echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether HEAD is already tagged
+        id: check
+        run: |
+          if git describe --tags --exact-match HEAD >/dev/null 2>&1; then
+            echo "already_tagged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_tagged=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: steps.check.outputs.already_tagged == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.new_tag }}" -m "Release ${{ steps.version.outputs.new_tag }}"
+          git push origin "${{ steps.version.outputs.new_tag }}"

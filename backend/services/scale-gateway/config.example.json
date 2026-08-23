@@ -1,0 +1,11 @@
+{
+  "listen_address": ":8080",
+  "scales": [
+    {
+      "id": "stall-1-scale-1",
+      "kind": "dialog_raw_tcp",
+      "dialog_variant": "02",
+      "address": "192.168.1.50:9999"
+    }
+  ]
+}

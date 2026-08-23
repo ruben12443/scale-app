@@ -1,0 +1,22 @@
+# IntelliJ files
+.idea/
+*.iml
+out/
+gen/
+
+# Claude / Docker / Environment files
+.env
+*.local
+node_modules/
+
+# Go
+backend/**/*.exe
+/backend/bin/
+
+# Flutter / Dart
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/build/
+mobile/.pub-cache/
+mobile/.pub/

@@ -1,0 +1,33 @@
+{
+  "name": "claude-code-container",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+
+  // Mountet deinen lokalen ~/.claude Ordner in den Container,
+  // damit der OAuth-Login nach dem ersten Mal erhalten bleibt.
+  "mounts": [
+    "source=${localEnv:HOME}/.claude,target=/root/.claude,type=bind,consistency=cached"
+  ],
+
+  // Arbeitsverzeichnis im Container
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+
+  // Optional: statt OAuth-Login im Container einen bereits erzeugten
+  // CLAUDE_CODE_OAUTH_TOKEN von deinem PC durchreichen (falls gesetzt).
+  "remoteEnv": {
+    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
+  },
+
+  // Standard-Shell beim Öffnen des Containers
+  "remoteUser": "root",
+  "postCreateCommand": "claude --version",
+
+  "customizations": {
+    "vscode": {
+      "extensions": []
+    }
+  }
+}
