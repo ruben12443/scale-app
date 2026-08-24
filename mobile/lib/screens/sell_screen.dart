@@ -8,10 +8,12 @@ import '../models/scale_status.dart';
 import '../models/transaction.dart';
 import '../state/receipt_state.dart';
 
-/// The core sell flow for one scale: pick a product, send its price/kg to
-/// the scale, the scale weighs and computes the total on its own certified
-/// display, then the vendor verifies that result here before locking it
-/// into the current receipt with a tap.
+/// The core sell flow for one scale. A per-kg product sends its price to
+/// the scale, which weighs and computes the total on its own certified
+/// display, verified here before locking it in. A per-piece product skips
+/// the scale entirely: pick a quantity, and the app computes the ordinary
+/// quantity x price total itself (no legal-metrology concern, since
+/// nothing is physically measured).
 class SellScreen extends StatefulWidget {
   final ScaleStatus scale;
   final ScaleGatewayClient gatewayClient;
@@ -30,8 +32,14 @@ class SellScreen extends StatefulWidget {
 
 class _SellScreenState extends State<SellScreen> {
   late Future<List<Product>> _productsFuture;
+  final _searchController = TextEditingController();
+  String _query = '';
+
   ScaleWeighResult? _pendingResult;
   Product? _pendingProduct;
+  Product? _pendingPieceProduct;
+  int _pieceQuantity = 1;
+
   bool _weighing = false;
   bool _locking = false;
   String? _error;
@@ -40,9 +48,27 @@ class _SellScreenState extends State<SellScreen> {
   void initState() {
     super.initState();
     _productsFuture = widget.coreApiClient.listProducts();
+    _searchController.addListener(() {
+      setState(() => _query = _searchController.text);
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _pickProduct(Product product) async {
+    if (product.isPerPiece) {
+      setState(() {
+        _pendingPieceProduct = product;
+        _pieceQuantity = 1;
+        _error = null;
+      });
+      return;
+    }
+
     setState(() {
       _weighing = true;
       _error = null;
@@ -50,7 +76,7 @@ class _SellScreenState extends State<SellScreen> {
     try {
       final result = await widget.gatewayClient.sendPrice(
         widget.scale.id,
-        product.pricePerKgCents,
+        product.unitPriceCents,
       );
       setState(() {
         _pendingProduct = product;
@@ -73,11 +99,11 @@ class _SellScreenState extends State<SellScreen> {
       _error = null;
     });
     try {
-      await context.read<ReceiptState>().addLine(
+      await context.read<ReceiptState>().addWeightLine(
         productId: product.id,
         scaleId: widget.scale.id,
         weightGrams: result.weightGrams,
-        unitPriceCents: product.pricePerKgCents,
+        unitPriceCents: product.unitPriceCents,
         totalPriceCents: result.priceCents,
         scaleStatusCode: result.statusCode,
       );
@@ -103,12 +129,71 @@ class _SellScreenState extends State<SellScreen> {
     });
   }
 
+  void _changePieceQuantity(int delta) {
+    setState(() => _pieceQuantity = (_pieceQuantity + delta).clamp(1, 999));
+  }
+
+  void _setPieceQuantity(int quantity) {
+    setState(() => _pieceQuantity = quantity.clamp(1, 999));
+  }
+
+  Future<void> _confirmPieceLine() async {
+    final product = _pendingPieceProduct;
+    if (product == null) return;
+
+    setState(() {
+      _locking = true;
+      _error = null;
+    });
+    try {
+      await context.read<ReceiptState>().addPieceLine(
+        productId: product.id,
+        quantity: _pieceQuantity,
+        unitPriceCents: product.unitPriceCents,
+        totalPriceCents: _pieceQuantity * product.unitPriceCents,
+      );
+      if (mounted) {
+        setState(() => _pendingPieceProduct = null);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Added to receipt')));
+      }
+    } catch (e) {
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _locking = false);
+    }
+  }
+
+  void _cancelPendingPiece() {
+    setState(() => _pendingPieceProduct = null);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('Sell — ${widget.scale.id}')),
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search products',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => _searchController.clear(),
+                      ),
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
+              ),
+            ),
+          ),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.all(8),
@@ -123,6 +208,16 @@ class _SellScreenState extends State<SellScreen> {
               onConfirm: _confirmAndLockIn,
               onCancel: _cancelPending,
             ),
+          if (_pendingPieceProduct != null)
+            _QuantityCard(
+              product: _pendingPieceProduct!,
+              quantity: _pieceQuantity,
+              locking: _locking,
+              onChangeQuantity: _changePieceQuantity,
+              onSetQuantity: _setPieceQuantity,
+              onConfirm: _confirmPieceLine,
+              onCancel: _cancelPendingPiece,
+            ),
           Expanded(
             child: FutureBuilder<List<Product>>(
               future: _productsFuture,
@@ -135,7 +230,13 @@ class _SellScreenState extends State<SellScreen> {
                     child: Text('Failed to load products: ${snapshot.error}'),
                   );
                 }
-                final products = snapshot.data!;
+                final products = snapshot.data!.where((p) {
+                  if (_query.isEmpty) return true;
+                  return p.name.toLowerCase().contains(_query.toLowerCase());
+                }).toList();
+                if (products.isEmpty) {
+                  return Center(child: Text('No products match "$_query".'));
+                }
                 return ListView.builder(
                   itemCount: products.length,
                   itemBuilder: (context, i) {
@@ -143,7 +244,9 @@ class _SellScreenState extends State<SellScreen> {
                     return ListTile(
                       title: Text(product.name),
                       subtitle: Text(
-                        '${ScaleTransaction.formatCents(product.pricePerKgCents)}/kg',
+                        product.isPerPiece
+                            ? '${ScaleTransaction.formatCents(product.unitPriceCents)} each'
+                            : '${ScaleTransaction.formatCents(product.unitPriceCents)}/kg',
                       ),
                       onTap: _weighing ? null : () => _pickProduct(product),
                     );
@@ -191,7 +294,7 @@ class _VerifyCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text('Weight: ${weightKg.toStringAsFixed(3)} kg'),
             Text(
-              'Unit price: ${ScaleTransaction.formatCents(product.pricePerKgCents)}/kg',
+              'Unit price: ${ScaleTransaction.formatCents(product.unitPriceCents)}/kg',
             ),
             Text(
               'Total: ${ScaleTransaction.formatCents(result.priceCents)}',
@@ -217,6 +320,108 @@ class _VerifyCard extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Text('Confirm & add to receipt'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A per-piece product's quantity picker: no scale is involved, so the
+/// vendor just counts items and the app computes quantity x price itself.
+class _QuantityCard extends StatelessWidget {
+  final Product product;
+  final int quantity;
+  final bool locking;
+  final ValueChanged<int> onChangeQuantity;
+  final ValueChanged<int> onSetQuantity;
+  final VoidCallback onConfirm;
+  final VoidCallback onCancel;
+
+  const _QuantityCard({
+    required this.product,
+    required this.quantity,
+    required this.locking,
+    required this.onChangeQuantity,
+    required this.onSetQuantity,
+    required this.onConfirm,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final total = quantity * product.unitPriceCents;
+    return Card(
+      margin: const EdgeInsets.all(12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(product.name, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton.outlined(
+                  onPressed: locking ? null : () => onChangeQuantity(-1),
+                  icon: const Icon(Icons.remove),
+                ),
+                SizedBox(
+                  width: 64,
+                  child: TextField(
+                    key: ValueKey(quantity),
+                    controller: TextEditingController(
+                      text: quantity.toString(),
+                    ),
+                    textAlign: TextAlign.center,
+                    keyboardType: TextInputType.number,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                    decoration: const InputDecoration(border: InputBorder.none),
+                    onSubmitted: (value) {
+                      final n = int.tryParse(value);
+                      if (n != null) onSetQuantity(n);
+                    },
+                  ),
+                ),
+                IconButton.outlined(
+                  onPressed: locking ? null : () => onChangeQuantity(1),
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Price each: ${ScaleTransaction.formatCents(product.unitPriceCents)}',
+            ),
+            Text(
+              'Total: ${ScaleTransaction.formatCents(total)}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: locking ? null : onCancel,
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: locking ? null : onConfirm,
+                    child: locking
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Add to receipt'),
                   ),
                 ),
               ],

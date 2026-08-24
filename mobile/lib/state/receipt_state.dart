@@ -28,9 +28,9 @@ class ReceiptState extends ChangeNotifier {
     }
   }
 
-  /// Records a scale-approved transaction and appends it to the draft
+  /// Records a scale-approved weigh event and appends it to the draft
   /// receipt (mirrors POST /transactions's own behavior), then refreshes.
-  Future<void> addLine({
+  Future<void> addWeightLine({
     required String productId,
     required String scaleId,
     required int weightGrams,
@@ -38,13 +38,30 @@ class ReceiptState extends ChangeNotifier {
     required int totalPriceCents,
     required String scaleStatusCode,
   }) async {
-    await _api.createTransaction(
+    await _api.createWeightTransaction(
       productId: productId,
       scaleId: scaleId,
       weightGrams: weightGrams,
       unitPriceCents: unitPriceCents,
       totalPriceCents: totalPriceCents,
       scaleStatusCode: scaleStatusCode,
+    );
+    await refresh();
+  }
+
+  /// Records a counted (per-piece) line and appends it to the draft
+  /// receipt, then refreshes. Never touches a scale.
+  Future<void> addPieceLine({
+    required String productId,
+    required int quantity,
+    required int unitPriceCents,
+    required int totalPriceCents,
+  }) async {
+    await _api.createPieceTransaction(
+      productId: productId,
+      quantity: quantity,
+      unitPriceCents: unitPriceCents,
+      totalPriceCents: totalPriceCents,
     );
     await refresh();
   }
@@ -65,5 +82,14 @@ class ReceiptState extends ChangeNotifier {
     final receipt = current;
     if (receipt == null) throw StateError('no current receipt');
     await _api.emailReceipt(receipt.id, to);
+    await refresh();
+  }
+
+  /// Puts a finalized (not yet sent) receipt back into draft.
+  Future<void> reopenReceipt() async {
+    final receipt = current;
+    if (receipt == null) throw StateError('no current receipt');
+    current = await _api.reopenReceipt(receipt.id);
+    notifyListeners();
   }
 }

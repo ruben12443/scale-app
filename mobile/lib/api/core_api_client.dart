@@ -127,7 +127,9 @@ class CoreApiClient {
 
   // --- Transactions / draft receipt ---
 
-  Future<CreateTransactionResult> createTransaction({
+  /// Records a per-kg line: the scale has already weighed and priced the
+  /// item, so this just reports back what it measured.
+  Future<CreateTransactionResult> createWeightTransaction({
     required String productId,
     required String scaleId,
     required int weightGrams,
@@ -155,6 +157,31 @@ class CoreApiClient {
     );
   }
 
+  /// Records a per-piece line: quantity x price, never touching a scale.
+  Future<CreateTransactionResult> createPieceTransaction({
+    required String productId,
+    required int quantity,
+    required int unitPriceCents,
+    required int totalPriceCents,
+  }) async {
+    final data = await _send(
+      'POST',
+      '/transactions',
+      body: {
+        'product_id': productId,
+        'quantity': quantity,
+        'unit_price_cents': unitPriceCents,
+        'total_price_cents': totalPriceCents,
+      },
+    ) as Map<String, dynamic>;
+    return (
+      transaction: ScaleTransaction.fromJson(
+        data['transaction'] as Map<String, dynamic>,
+      ),
+      receiptId: data['receipt_id'] as String,
+    );
+  }
+
   Future<Receipt> getCurrentReceipt() async {
     final data = await _send('GET', '/receipts/current');
     return Receipt.fromJson(data as Map<String, dynamic>);
@@ -170,6 +197,13 @@ class CoreApiClient {
 
   Future<Receipt> finalizeReceipt() async {
     final data = await _send('POST', '/receipts/current/finalize');
+    return Receipt.fromJson(data as Map<String, dynamic>);
+  }
+
+  /// Puts a finalized (not yet sent) receipt back into draft, e.g. to
+  /// correct a mis-scanned line.
+  Future<Receipt> reopenReceipt(String receiptId) async {
+    final data = await _send('POST', '/receipts/$receiptId/reopen');
     return Receipt.fromJson(data as Map<String, dynamic>);
   }
 

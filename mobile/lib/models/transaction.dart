@@ -1,14 +1,18 @@
 /// Mirrors core-api's domain.Transaction JSON shape (see
 /// backend/services/core-api/internal/domain/transaction.go). This is the
-/// immutable record of one scale-approved weigh event.
+/// immutable record of one sale line: either a scale-approved weigh event
+/// ("per_kg", [weightGrams] set) or a counted line ("per_piece", [quantity]
+/// set).
 class ScaleTransaction {
   final String id;
   final String tenantId;
   final String userId;
   final String productId;
   final String productName;
+  final String pricingType;
   final String scaleId;
   final int weightGrams;
+  final int quantity;
   final int unitPriceCents;
   final int totalPriceCents;
   final String scaleStatusCode;
@@ -20,13 +24,17 @@ class ScaleTransaction {
     required this.userId,
     required this.productId,
     required this.productName,
+    required this.pricingType,
     required this.scaleId,
     required this.weightGrams,
+    required this.quantity,
     required this.unitPriceCents,
     required this.totalPriceCents,
     required this.scaleStatusCode,
     required this.createdAt,
   });
+
+  bool get isPerPiece => pricingType == 'per_piece';
 
   factory ScaleTransaction.fromJson(Map<String, dynamic> json) {
     return ScaleTransaction(
@@ -35,11 +43,13 @@ class ScaleTransaction {
       userId: json['user_id'] as String,
       productId: json['product_id'] as String,
       productName: json['product_name'] as String,
-      scaleId: json['scale_id'] as String,
-      weightGrams: json['weight_grams'] as int,
+      pricingType: json['pricing_type'] as String,
+      scaleId: json['scale_id'] as String? ?? '',
+      weightGrams: json['weight_grams'] as int? ?? 0,
+      quantity: json['quantity'] as int? ?? 0,
       unitPriceCents: json['unit_price_cents'] as int,
       totalPriceCents: json['total_price_cents'] as int,
-      scaleStatusCode: json['scale_status_code'] as String,
+      scaleStatusCode: json['scale_status_code'] as String? ?? '',
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }

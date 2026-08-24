@@ -7,11 +7,13 @@ class Receipt {
   final String id;
   final String tenantId;
   final String userId;
-  final String status; // "draft" or "finalized"
+  final String status; // "draft", "finalized", or "sent"
   final int number;
   final List<String> transactionIds;
   final DateTime createdAt;
   final DateTime? finalizedAt;
+  final DateTime? sentAt;
+  final String? sentTo;
   final List<ScaleTransaction> lines;
 
   /// Non-null only on the response from POST /receipts/current/finalize.
@@ -27,12 +29,16 @@ class Receipt {
     required this.transactionIds,
     required this.createdAt,
     required this.finalizedAt,
+    this.sentAt,
+    this.sentTo,
     required this.lines,
     this.renderedText,
     this.renderedHtml,
   });
 
   bool get isDraft => status == 'draft';
+  bool get isFinalized => status == 'finalized';
+  bool get isSent => status == 'sent';
 
   int get totalCents => lines.fold(0, (sum, l) => sum + l.totalPriceCents);
 
@@ -49,6 +55,10 @@ class Receipt {
       finalizedAt: json['finalized_at'] == null
           ? null
           : DateTime.parse(json['finalized_at'] as String),
+      sentAt: json['sent_at'] == null
+          ? null
+          : DateTime.parse(json['sent_at'] as String),
+      sentTo: json['sent_to'] as String?,
       lines: (json['lines'] as List<dynamic>? ?? [])
           .map((l) => ScaleTransaction.fromJson(l as Map<String, dynamic>))
           .toList(),

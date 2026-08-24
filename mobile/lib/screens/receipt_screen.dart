@@ -5,7 +5,9 @@ import '../models/transaction.dart';
 import '../state/receipt_state.dart';
 
 /// The current draft receipt: mutable at any point (remove a line to
-/// correct a mistake) until finalized. Once finalized it can be emailed.
+/// correct a mistake) until finalized. A finalized receipt is still
+/// reopenable (e.g. to fix a mis-scanned line) — only sending it (emailing
+/// today, printing later) is the real point of no return.
 class ReceiptScreen extends StatefulWidget {
   const ReceiptScreen({super.key});
 
@@ -39,6 +41,17 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     setState(() => _busy = true);
     try {
       await context.read<ReceiptState>().finalizeReceipt();
+    } catch (e) {
+      _showError(e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _reopen() async {
+    setState(() => _busy = true);
+    try {
+      await context.read<ReceiptState>().reopenReceipt();
     } catch (e) {
       _showError(e);
     } finally {
@@ -98,7 +111,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                           return ListTile(
                             title: Text(line.productName),
                             subtitle: Text(
-                              '${line.formattedWeight} • ${ScaleTransaction.formatCents(line.unitPriceCents)}/kg',
+                              line.isPerPiece
+                                  ? '${line.quantity} × ${ScaleTransaction.formatCents(line.unitPriceCents)} each'
+                                  : '${line.formattedWeight} • ${ScaleTransaction.formatCents(line.unitPriceCents)}/kg',
                             ),
                             trailing: receipt.isDraft
                                 ? IconButton(
@@ -141,11 +156,53 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                             : _finalize,
                         child: const Text('Finalize receipt'),
                       )
-                    else
-                      OutlinedButton.icon(
-                        onPressed: _busy ? null : _emailReceipt,
-                        icon: const Icon(Icons.email_outlined),
-                        label: const Text('Email receipt'),
+                    else if (receipt.isFinalized) ...[
+                      const Text(
+                        'Finalized — still correctable until it\'s sent.',
+                        style: TextStyle(color: Colors.black54, fontSize: 12),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _busy ? null : _reopen,
+                              child: const Text('Reopen receipt'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _busy ? null : _emailReceipt,
+                              icon: const Icon(Icons.email_outlined),
+                              label: const Text('Email receipt'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ] else
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .secondaryContainer,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.lock_outline, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Emailed to ${receipt.sentTo} — locked',
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                   ],
                 ),

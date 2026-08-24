@@ -29,14 +29,20 @@ Flutter app for scale-app's vendor-facing mobile client.
   Vendors (admin user management) tab only when the fetched role is admin;
   the backend enforces this independently via `RequireRole`, so this is
   just UI convenience, not the actual access control.
-- **The scale, not this app, computes the price.** `SellScreen`'s "verify"
-  step displays what `scale-gateway` already read back from the scale —
-  weight, unit price, total — and only ever sends that same data on to
-  core-api. It never recomputes anything.
+- **The scale, not this app, computes a weighed price.** `SellScreen`'s
+  "verify" step displays what `scale-gateway` already read back from the
+  scale — weight, unit price, total — and only ever sends that same data
+  on to core-api. It never recomputes anything. A per-piece product skips
+  the scale entirely: the app picks a quantity and multiplies by price
+  itself, which is fine — no physical measurement, no metrology concern.
 - **Removing a receipt line doesn't delete the transaction.** Matches the
   backend: `DELETE /receipts/current/lines/{id}` unlinks a line from the
   draft; the underlying transaction record (what the scale actually
-  measured) stays as an audit trail.
+  measured, or what was counted) stays as an audit trail.
+- **Finalizing isn't final — sending is.** `ReceiptScreen` lets a
+  finalized receipt be reopened back into a draft (e.g. to fix a
+  mis-scanned line); only emailing it locks the receipt for good, showing
+  a "locked" notice instead of any further actions.
 - Product management (create/edit) isn't in this app — the original spec
   only calls for *picking* a product with its existing price, not managing
   the catalog from the phone.

@@ -111,7 +111,7 @@ void main() {
     });
 
     test(
-      'createTransaction parses the nested transaction + receipt_id',
+      'createWeightTransaction parses the nested transaction + receipt_id',
       () async {
         final client = CoreApiClient(
           baseUrl: 'https://api.test',
@@ -126,8 +126,10 @@ void main() {
                   'user_id': 'u1',
                   'product_id': 'p1',
                   'product_name': 'Tomatoes',
+                  'pricing_type': 'per_kg',
                   'scale_id': 'scale-1',
                   'weight_grams': 1250,
+                  'quantity': 0,
                   'unit_price_cents': 499,
                   'total_price_cents': 624,
                   'scale_status_code': '1',
@@ -140,7 +142,7 @@ void main() {
           }),
         );
 
-        final result = await client.createTransaction(
+        final result = await client.createWeightTransaction(
           productId: 'p1',
           scaleId: 'scale-1',
           weightGrams: 1250,
@@ -153,6 +155,86 @@ void main() {
         expect(result.transaction.productName, 'Tomatoes');
       },
     );
+
+    test(
+      'createPieceTransaction posts quantity instead of weight fields',
+      () async {
+        Map<String, dynamic>? gotBody;
+        final client = CoreApiClient(
+          baseUrl: 'https://api.test',
+          authToken: () async => 'tok',
+          httpClient: MockClient((req) async {
+            gotBody = jsonDecode(req.body) as Map<String, dynamic>;
+            return http.Response(
+              jsonEncode({
+                'transaction': {
+                  'id': 'tx1',
+                  'tenant_id': 't1',
+                  'user_id': 'u1',
+                  'product_id': 'p1',
+                  'product_name': 'Eggs (dozen)',
+                  'pricing_type': 'per_piece',
+                  'scale_id': '',
+                  'weight_grams': 0,
+                  'quantity': 3,
+                  'unit_price_cents': 550,
+                  'total_price_cents': 1650,
+                  'scale_status_code': '',
+                  'created_at': '2026-08-23T14:30:00Z',
+                },
+                'receipt_id': 'r1',
+              }),
+              201,
+            );
+          }),
+        );
+
+        final result = await client.createPieceTransaction(
+          productId: 'p1',
+          quantity: 3,
+          unitPriceCents: 550,
+          totalPriceCents: 1650,
+        );
+
+        expect(gotBody, {
+          'product_id': 'p1',
+          'quantity': 3,
+          'unit_price_cents': 550,
+          'total_price_cents': 1650,
+        });
+        expect(result.transaction.quantity, 3);
+        expect(result.transaction.isPerPiece, isTrue);
+      },
+    );
+
+    test('reopenReceipt posts to /receipts/{id}/reopen', () async {
+      Uri? gotUri;
+      final client = CoreApiClient(
+        baseUrl: 'https://api.test',
+        authToken: () async => 'tok',
+        httpClient: MockClient((req) async {
+          gotUri = req.url;
+          return http.Response(
+            jsonEncode({
+              'id': 'r1',
+              'tenant_id': 't1',
+              'user_id': 'u1',
+              'status': 'draft',
+              'transaction_ids': [],
+              'created_at': '2026-08-23T14:30:00Z',
+              'finalized_at': null,
+              'lines': [],
+            }),
+            200,
+          );
+        }),
+      );
+
+      final receipt = await client.reopenReceipt('r1');
+
+      expect(gotUri.toString(), 'https://api.test/receipts/r1/reopen');
+      expect(receipt.isDraft, isTrue);
+    });
 
     test('deleteUser handles an empty 204 response body', () async {
       var calls = 0;
