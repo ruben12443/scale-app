@@ -77,6 +77,7 @@ func (h *TransactionHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		TenantID:        actor.TenantID,
 		UserID:          actor.ID,
 		ProductID:       req.ProductID,
+		ProductName:     product.Name,
 		ScaleID:         req.ScaleID,
 		WeightGrams:     req.WeightGrams,
 		UnitPriceCents:  req.UnitPriceCents,

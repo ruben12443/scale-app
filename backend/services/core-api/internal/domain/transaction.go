@@ -8,11 +8,12 @@ import "time"
 // scale, so it is never edited, only included in or removed from a draft
 // receipt's line items.
 type Transaction struct {
-	ID        string `json:"id"`
-	TenantID  string `json:"tenant_id"`
-	UserID    string `json:"user_id"`
-	ProductID string `json:"product_id"`
-	ScaleID   string `json:"scale_id"`
+	ID          string `json:"id"`
+	TenantID    string `json:"tenant_id"`
+	UserID      string `json:"user_id"`
+	ProductID   string `json:"product_id"`
+	ProductName string `json:"product_name"` // snapshotted at creation so receipts stay accurate if the product is later renamed or deleted
+	ScaleID     string `json:"scale_id"`
 
 	WeightGrams     int `json:"weight_grams"`
 	UnitPriceCents  int `json:"unit_price_cents"`  // price per kg that was sent to the scale

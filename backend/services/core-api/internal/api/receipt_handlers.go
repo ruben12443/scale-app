@@ -24,16 +24,12 @@ type receiptResponse struct {
 	Lines []*domain.Transaction `json:"lines"`
 }
 
-func (h *ReceiptHandlers) resolve(r *http.Request, receipt *domain.Receipt) (receiptResponse, error) {
-	lines := make([]*domain.Transaction, 0, len(receipt.TransactionIDs))
-	for _, id := range receipt.TransactionIDs {
-		tx, err := h.Transactions.Get(r.Context(), id)
-		if err != nil {
-			return receiptResponse{}, err
-		}
-		lines = append(lines, tx)
+func (h *ReceiptHandlers) resolve(r *http.Request, rc *domain.Receipt) (receiptResponse, error) {
+	lines, err := resolveTransactions(r, h.Transactions, rc.TransactionIDs)
+	if err != nil {
+		return receiptResponse{}, err
 	}
-	return receiptResponse{Receipt: receipt, Lines: lines}, nil
+	return receiptResponse{Receipt: rc, Lines: lines}, nil
 }
 
 // GetCurrent returns the caller's open draft receipt, creating one if none

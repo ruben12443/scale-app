@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     tenant_id          TEXT NOT NULL REFERENCES tenants(id),
     user_id            TEXT NOT NULL REFERENCES users(id),
     product_id         TEXT NOT NULL REFERENCES products(id),
+    product_name       TEXT NOT NULL,
     scale_id           TEXT NOT NULL,
     weight_grams       INTEGER NOT NULL,
     unit_price_cents   INTEGER NOT NULL,
@@ -39,6 +40,15 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at         TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS transactions_tenant_id_idx ON transactions(tenant_id);
+
+-- schema.sql is applied idempotently on every startup (see Store.Migrate)
+-- rather than through a versioned migration tool, so a column added after a
+-- table already existed needs an explicit ALTER here rather than relying on
+-- CREATE TABLE IF NOT EXISTS, which is a no-op for it against installations
+-- that were migrated before the column existed. This won't scale past a
+-- handful of changes — a real migration tool (golang-migrate, goose, etc.)
+-- is worth adopting before schema changes become frequent.
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS product_name TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS receipts (
     id           TEXT PRIMARY KEY,

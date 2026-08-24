@@ -5,6 +5,7 @@ import (
 
 	"scale-app/backend/services/core-api/internal/auth"
 	"scale-app/backend/services/core-api/internal/domain"
+	"scale-app/backend/services/core-api/internal/receipt"
 	"scale-app/backend/services/core-api/internal/storage"
 )
 
@@ -14,7 +15,7 @@ type Server struct {
 }
 
 // NewServer wires storage, auth, and every handler group into a Server.
-func NewServer(store storage.Store, verifier auth.TokenVerifier, admin auth.AdminClient) *Server {
+func NewServer(store storage.Store, verifier auth.TokenVerifier, admin auth.AdminClient, emailSender receipt.EmailSender) *Server {
 	s := &Server{mux: http.NewServeMux()}
 	authenticated := auth.Middleware(verifier, store.Users())
 	adminOnly := func(h http.HandlerFunc) http.Handler {
@@ -41,6 +42,15 @@ func NewServer(store storage.Store, verifier auth.TokenVerifier, admin auth.Admi
 	receipts := &ReceiptHandlers{Receipts: store.Receipts(), Transactions: store.Transactions()}
 	s.mux.Handle("GET /receipts/current", anyRole(receipts.GetCurrent))
 	s.mux.Handle("DELETE /receipts/current/lines/{transactionId}", anyRole(receipts.RemoveLine))
+
+	finalize := &ReceiptFinalizeHandlers{
+		Receipts:     store.Receipts(),
+		Transactions: store.Transactions(),
+		Tenants:      store.Tenants(),
+		EmailSender:  emailSender,
+	}
+	s.mux.Handle("POST /receipts/current/finalize", anyRole(finalize.Finalize))
+	s.mux.Handle("POST /receipts/{id}/email", anyRole(finalize.Email))
 
 	return s
 }

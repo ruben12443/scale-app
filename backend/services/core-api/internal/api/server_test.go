@@ -9,6 +9,7 @@ import (
 
 	"scale-app/backend/services/core-api/internal/auth"
 	"scale-app/backend/services/core-api/internal/domain"
+	"scale-app/backend/services/core-api/internal/receipt"
 	"scale-app/backend/services/core-api/internal/storage/memory"
 )
 
@@ -25,7 +26,7 @@ func (f fakeVerifier) Verify(ctx context.Context, rawToken string) (string, erro
 
 func TestServerRejectsUnauthenticated(t *testing.T) {
 	store := memory.New()
-	srv := NewServer(store, fakeVerifier{}, auth.NewFakeAdminClient())
+	srv := NewServer(store, fakeVerifier{}, auth.NewFakeAdminClient(), &receipt.FakeEmailSender{})
 
 	req := httptest.NewRequest(http.MethodGet, "/users", nil)
 	rec := httptest.NewRecorder()
@@ -39,7 +40,7 @@ func TestServerRejectsUnauthenticated(t *testing.T) {
 func TestServerRejectsNonAdminOnAdminRoute(t *testing.T) {
 	store := memory.New()
 	_ = store.Users().Create(context.Background(), &domain.User{ID: "u1", TenantID: "t1", ZitadelSubjectID: "sub-vendor", Role: domain.RoleVendor})
-	srv := NewServer(store, fakeVerifier{subject: "sub-vendor"}, auth.NewFakeAdminClient())
+	srv := NewServer(store, fakeVerifier{subject: "sub-vendor"}, auth.NewFakeAdminClient(), &receipt.FakeEmailSender{})
 
 	req := httptest.NewRequest(http.MethodGet, "/users", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
@@ -54,7 +55,7 @@ func TestServerRejectsNonAdminOnAdminRoute(t *testing.T) {
 func TestServerAllowsAdminEndToEnd(t *testing.T) {
 	store := memory.New()
 	_ = store.Users().Create(context.Background(), &domain.User{ID: "admin-1", TenantID: "t1", ZitadelSubjectID: "sub-admin", Role: domain.RoleAdmin})
-	srv := NewServer(store, fakeVerifier{subject: "sub-admin"}, auth.NewFakeAdminClient())
+	srv := NewServer(store, fakeVerifier{subject: "sub-admin"}, auth.NewFakeAdminClient(), &receipt.FakeEmailSender{})
 
 	body := []byte(`{"email":"vendor@example.com","display_name":"Jane Vendor"}`)
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewReader(body))
