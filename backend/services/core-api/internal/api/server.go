@@ -35,6 +35,13 @@ func NewServer(store storage.Store, verifier auth.TokenVerifier, admin auth.Admi
 	s.mux.Handle("PUT /products/{id}", adminOnly(products.Update))
 	s.mux.Handle("DELETE /products/{id}", adminOnly(products.Delete))
 
+	transactions := &TransactionHandlers{Products: store.Products(), Transactions: store.Transactions(), Receipts: store.Receipts()}
+	s.mux.Handle("POST /transactions", anyRole(transactions.Create))
+
+	receipts := &ReceiptHandlers{Receipts: store.Receipts(), Transactions: store.Transactions()}
+	s.mux.Handle("GET /receipts/current", anyRole(receipts.GetCurrent))
+	s.mux.Handle("DELETE /receipts/current/lines/{transactionId}", anyRole(receipts.RemoveLine))
+
 	return s
 }
 
