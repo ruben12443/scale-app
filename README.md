@@ -36,8 +36,13 @@ performs or certifies any weighing/pricing calculation of its own.
 
 ## Local development
 
+`.env` is gitignored and not checked into the repo — create it yourself
+(see `docker-compose.yml` for the variables it reads: `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, `POSTGRES_DB`, `ZITADEL_DB_PASSWORD`,
+`ZITADEL_MASTERKEY`, `ZITADEL_AUDIENCE`, `ZITADEL_SERVICE_TOKEN`,
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `CURRENCY`), then:
+
 ```
-cp .env.example .env   # fill in values, see comments in the file
 docker compose up --build
 ```
 
