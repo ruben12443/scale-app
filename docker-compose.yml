@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  zitadel-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: zitadel
+      POSTGRES_PASSWORD: ${ZITADEL_DB_PASSWORD}
+      POSTGRES_DB: zitadel
+    volumes:
+      - zitadel-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zitadel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:latest
+    command: >
+      start-from-init
+      --masterkey "${ZITADEL_MASTERKEY}"
+      --tlsMode disabled
+    environment:
+      ZITADEL_DATABASE_POSTGRES_DSN: "postgresql://zitadel:${ZITADEL_DB_PASSWORD}@zitadel-db:5432/zitadel?sslmode=disable"
+      ZITADEL_EXTERNALDOMAIN: localhost
+      ZITADEL_EXTERNALPORT: "8080"
+      ZITADEL_EXTERNALSECURE: "false"
+    ports:
+      - "8080:8080"
+    depends_on:
+      zitadel-db:
+        condition: service_healthy
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025" # web UI, for viewing sent receipt emails during dev
+      - "1025:1025" # SMTP
+
+  scale-gateway:
+    build:
+      context: ./backend
+      dockerfile: services/scale-gateway/Dockerfile
+    volumes:
+      - ./backend/services/scale-gateway/config.example.json:/etc/scale-gateway/config.json:ro
+    command: ["-config", "/etc/scale-gateway/config.json"]
+    ports:
+      - "8082:8080"
+
+  core-api:
+    build:
+      context: ./backend
+      dockerfile: services/core-api/Dockerfile
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+      LISTEN_ADDR: ":8081"
+      ZITADEL_ISSUER_URL: "http://zitadel:8080"
+      ZITADEL_AUDIENCE: ${ZITADEL_AUDIENCE}
+      ZITADEL_BASE_URL: "http://zitadel:8080"
+      ZITADEL_SERVICE_TOKEN: ${ZITADEL_SERVICE_TOKEN}
+      SMTP_ADDR: "mailpit:1025"
+      SMTP_FROM: "receipts@scale-app.local"
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      CURRENCY: ${CURRENCY}
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      zitadel:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  zitadel-db-data:

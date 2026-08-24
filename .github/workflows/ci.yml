@@ -12,6 +12,24 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: scaleapp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Enables core-api's postgres integration tests, which otherwise skip
+      # cleanly when this isn't set (see internal/storage/postgres/store_test.go).
+      DATABASE_URL: "postgres://postgres:postgres@localhost:5432/scaleapp_test?sslmode=disable"
     steps:
       - uses: actions/checkout@v4
 
