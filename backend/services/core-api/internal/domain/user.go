@@ -15,11 +15,11 @@ const (
 // Authentication itself is handled by Zitadel; ZitadelSubjectID links this
 // record to the identity Zitadel issues tokens for.
 type User struct {
-	ID               string
-	TenantID         string
-	ZitadelSubjectID string
-	DisplayName      string
-	Email            string
-	Role             Role
-	CreatedAt        time.Time
+	ID               string    `json:"id"`
+	TenantID         string    `json:"tenant_id"`
+	ZitadelSubjectID string    `json:"zitadel_subject_id"`
+	DisplayName      string    `json:"display_name"`
+	Email            string    `json:"email"`
+	Role             Role      `json:"role"`
+	CreatedAt        time.Time `json:"created_at"`
 }

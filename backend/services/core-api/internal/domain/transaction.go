@@ -8,20 +8,20 @@ import "time"
 // scale, so it is never edited, only included in or removed from a draft
 // receipt's line items.
 type Transaction struct {
-	ID        string
-	TenantID  string
-	UserID    string
-	ProductID string
-	ScaleID   string
+	ID        string `json:"id"`
+	TenantID  string `json:"tenant_id"`
+	UserID    string `json:"user_id"`
+	ProductID string `json:"product_id"`
+	ScaleID   string `json:"scale_id"`
 
-	WeightGrams     int
-	UnitPriceCents  int // price per kg that was sent to the scale
-	TotalPriceCents int // total price the scale computed and displayed
+	WeightGrams     int `json:"weight_grams"`
+	UnitPriceCents  int `json:"unit_price_cents"`  // price per kg that was sent to the scale
+	TotalPriceCents int `json:"total_price_cents"` // total price the scale computed and displayed
 
 	// ScaleStatusCode is the raw, unverified status field the scale's
 	// protocol returned alongside the transaction (see the scale-gateway
 	// service's README for why its meaning isn't decoded further).
-	ScaleStatusCode string
+	ScaleStatusCode string `json:"scale_status_code"`
 
-	CreatedAt time.Time
+	CreatedAt time.Time `json:"created_at"`
 }

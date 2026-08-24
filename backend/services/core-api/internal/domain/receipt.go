@@ -23,19 +23,19 @@ const (
 // not by editing the underlying Transaction. Once finalized it is immutable
 // and gets a sequential, tenant-scoped Number for display on the receipt.
 type Receipt struct {
-	ID       string
-	TenantID string
-	UserID   string
-	Status   ReceiptStatus
+	ID       string        `json:"id"`
+	TenantID string        `json:"tenant_id"`
+	UserID   string        `json:"user_id"`
+	Status   ReceiptStatus `json:"status"`
 
 	// Number is a sequential, tenant-scoped receipt number assigned at
 	// finalization. Zero until finalized.
-	Number int
+	Number int `json:"number,omitempty"`
 
-	TransactionIDs []string
+	TransactionIDs []string `json:"transaction_ids"`
 
-	CreatedAt   time.Time
-	FinalizedAt *time.Time
+	CreatedAt   time.Time  `json:"created_at"`
+	FinalizedAt *time.Time `json:"finalized_at,omitempty"`
 }
 
 // ErrReceiptFinalized is returned when trying to mutate a finalized receipt.
