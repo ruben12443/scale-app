@@ -43,7 +43,12 @@ services:
       --masterkey "${ZITADEL_MASTERKEY}"
     environment:
       ZITADEL_DATABASE_POSTGRES_DSN: "postgresql://zitadel:${ZITADEL_DB_PASSWORD}@zitadel-db:5432/zitadel?sslmode=disable"
-      ZITADEL_EXTERNALDOMAIN: localhost
+      # ZITADEL_DOMAIN is whatever host the mobile app/browser will reach
+      # this stack on: "localhost" for the desktop, or a LAN IP (e.g.
+      # 192.168.1.42) when testing from a phone on the same network. Login
+      # V2's URLs below must point at the same host, since the browser is
+      # redirected there directly (not proxied through zitadel).
+      ZITADEL_EXTERNALDOMAIN: ${ZITADEL_DOMAIN}
       ZITADEL_EXTERNALPORT: "8080"
       ZITADEL_EXTERNALSECURE: "false"
       ZITADEL_TLS_ENABLED: "false"
@@ -59,9 +64,9 @@ services:
       # Zitadel defaulting to) and points it at zitadel-login's published
       # port instead of the unset default, which is what 404'd.
       ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "true"
-      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: "http://localhost:3000/ui/v2/login/"
-      ZITADEL_OIDC_DEFAULTLOGINURLV2: "http://localhost:3000/ui/v2/login/login?authRequest="
-      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: "http://localhost:3000/ui/v2/login/logout?post_logout_redirect="
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: "http://${ZITADEL_DOMAIN}:3000/ui/v2/login/"
+      ZITADEL_OIDC_DEFAULTLOGINURLV2: "http://${ZITADEL_DOMAIN}:3000/ui/v2/login/login?authRequest="
+      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: "http://${ZITADEL_DOMAIN}:3000/ui/v2/login/logout?post_logout_redirect="
     ports:
       - "8080:8080"
     volumes:
@@ -113,7 +118,14 @@ services:
     environment:
       DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
       LISTEN_ADDR: ":8081"
-      ZITADEL_ISSUER_URL: "http://zitadel:8080"
+      # ZITADEL_ISSUER_URL must match Zitadel's ZITADEL_EXTERNALDOMAIN above
+      # exactly (OIDC discovery requires it), while ZITADEL_DISCOVERY_URL is
+      # the address core-api actually reaches Zitadel at over the Docker
+      # network — these differ whenever ZITADEL_DOMAIN isn't "zitadel"
+      # (i.e. always, for any real value), which is exactly the split
+      # NewZitadelVerifier's oidc.InsecureIssuerURLContext handles.
+      ZITADEL_ISSUER_URL: "http://${ZITADEL_DOMAIN}:8080"
+      ZITADEL_DISCOVERY_URL: "http://zitadel:8080"
       ZITADEL_AUDIENCE: ${ZITADEL_AUDIENCE}
       ZITADEL_BASE_URL: "http://zitadel:8080"
       ZITADEL_SERVICE_TOKEN: ${ZITADEL_SERVICE_TOKEN}

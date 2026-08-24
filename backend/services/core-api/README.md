@@ -83,7 +83,8 @@ cross-tenant existence.
 |---|---|
 | `DATABASE_URL` | Postgres connection string |
 | `LISTEN_ADDR` | HTTP listen address (default `:8081`) |
-| `ZITADEL_ISSUER_URL` | Zitadel instance issuer URL, for OIDC discovery |
+| `ZITADEL_ISSUER_URL` | Zitadel's externally-configured issuer (must match its `ZITADEL_EXTERNALDOMAIN`/port exactly — used for token issuer validation) |
+| `ZITADEL_DISCOVERY_URL` | Address core-api actually reaches Zitadel at to fetch its OIDC discovery document/JWKS; defaults to `ZITADEL_ISSUER_URL` if unset |
 | `ZITADEL_AUDIENCE` | Expected token audience (API/client ID) |
 | `ZITADEL_BASE_URL` | Zitadel instance base URL, for the admin API |
 | `ZITADEL_SERVICE_TOKEN` | Bearer token for a Zitadel service account with user-management permissions |
@@ -92,6 +93,16 @@ cross-tenant existence.
 | `STRIPE_SECRET_KEY` | Stripe secret API key |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret for the `/webhooks/stripe` endpoint (from the Stripe dashboard) |
 | `CURRENCY` | ISO currency code for payment intents, lowercase (default `chf`) |
+
+`ZITADEL_ISSUER_URL` and `ZITADEL_DISCOVERY_URL` are only ever different
+when core-api reaches Zitadel over an internal address (e.g. the
+`http://zitadel:8080` Docker Compose service name) that isn't the same
+address Zitadel was told is its own public identity (e.g. `localhost` or a
+LAN IP for phone testing). OIDC discovery requires the fetched document's
+`issuer` field to match the URL it was fetched from, so a single shared URL
+breaks the moment those two addresses differ — see
+`internal/auth/verifier.go`'s doc comment for the mechanism
+(`oidc.InsecureIssuerURLContext`) that makes the split work.
 
 ## Running
 

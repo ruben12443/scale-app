@@ -38,7 +38,7 @@ performs or certifies any weighing/pricing calculation of its own.
 
 `.env` is gitignored and not checked into the repo — create it yourself
 (see `docker-compose.yml` for the variables it reads: `POSTGRES_USER`,
-`POSTGRES_PASSWORD`, `POSTGRES_DB`, `ZITADEL_DB_PASSWORD`,
+`POSTGRES_PASSWORD`, `POSTGRES_DB`, `ZITADEL_DOMAIN`, `ZITADEL_DB_PASSWORD`,
 `ZITADEL_MASTERKEY`, `ZITADEL_AUDIENCE`, `ZITADEL_SERVICE_TOKEN`,
 `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `CURRENCY`), then:
 
@@ -46,16 +46,24 @@ performs or certifies any weighing/pricing calculation of its own.
 docker compose up --build
 ```
 
+`ZITADEL_DOMAIN` is the host the mobile app/browser will reach this stack
+on: `localhost` for desktop testing, or this machine's LAN IP (e.g.
+`192.168.1.42`) to test from a phone on the same network — see "Testing on
+a phone" below. It's baked into Zitadel's first-run instance data, so
+changing it requires `docker compose down -v && docker compose up --build`
+to take effect; no other file needs editing.
+
 **Not automatable in the compose file itself:** on first run, Zitadel needs
-manual one-time setup through its console (http://localhost:8080/ui/console —
-logging in redirects through the separate login UI at localhost:3000, see
-below) — create a project and an API application (this becomes
-`ZITADEL_AUDIENCE`), then a service user with a personal access token that
-has user-management permissions (this becomes `ZITADEL_SERVICE_TOKEN`). Put
-both in `.env` and restart `core-api`. Stripe test-mode keys come from
-https://dashboard.stripe.com/test/apikeys; for local webhook testing, the
-Stripe CLI's `stripe listen --forward-to localhost:8081/webhooks/stripe`
-prints a webhook secret to use as `STRIPE_WEBHOOK_SECRET`.
+manual one-time setup through its console (`http://<ZITADEL_DOMAIN>:8080/ui/console` —
+logging in redirects through the separate login UI at
+`<ZITADEL_DOMAIN>:3000`, see below) — create a project and an API
+application (this becomes `ZITADEL_AUDIENCE`), then a service user with a
+personal access token that has user-management permissions (this becomes
+`ZITADEL_SERVICE_TOKEN`). Put both in `.env` and restart `core-api`. Stripe
+test-mode keys come from https://dashboard.stripe.com/test/apikeys; for
+local webhook testing, the Stripe CLI's
+`stripe listen --forward-to localhost:8081/webhooks/stripe` prints a
+webhook secret to use as `STRIPE_WEBHOOK_SECRET`.
 
 Zitadel v4 splits its login UI into a separate service (`zitadel-login`,
 port 3000) from the main API (`zitadel`, port 8080) — the official
@@ -77,6 +85,33 @@ serial-to-Ethernet adapter in front of one) to do anything useful.
 TCP listener — see that service's README for how to point scale-gateway at
 it, which lets you exercise the entire flow (mobile app → scale-gateway →
 core-api → receipt) without hardware.
+
+## Testing on a phone
+
+By default the stack (and the mobile app's own defaults, in
+`mobile/lib/config.dart`) targets `localhost`, which only works from a
+browser or emulator on the same machine — a physical phone can't resolve
+`localhost` to your computer. To test on a phone on the same Wi-Fi network:
+
+1. Find this machine's LAN IP (e.g. `192.168.1.42`).
+2. Set `ZITADEL_DOMAIN=192.168.1.42` in `.env`, then
+   `docker compose down -v && docker compose up --build` (a fresh Zitadel
+   init is required — the domain is baked into its first-run instance
+   data).
+3. Run the app pointed at the same IP for every backend it talks to:
+   ```
+   flutter run \
+     --dart-define=CORE_API_BASE_URL=http://192.168.1.42:8081 \
+     --dart-define=SCALE_GATEWAY_BASE_URL=http://192.168.1.42:8082 \
+     --dart-define=ZITADEL_ISSUER=http://192.168.1.42:8080 \
+     --dart-define=ZITADEL_CLIENT_ID=<your API application's client ID>
+   ```
+
+All four values must agree with each other and with `ZITADEL_DOMAIN` —
+mixing `localhost` and a LAN IP across them breaks OIDC discovery (the
+issuer Zitadel advertises must match the URL the phone actually reached it
+at) and CORS/redirect matching. Switch back to `localhost` the same way
+when done.
 
 ## Branching
 

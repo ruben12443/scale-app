@@ -22,6 +22,12 @@ func main() {
 	dsn := requireEnv("DATABASE_URL")
 	listenAddr := getEnv("LISTEN_ADDR", ":8081")
 	issuerURL := requireEnv("ZITADEL_ISSUER_URL")
+	// ZITADEL_DISCOVERY_URL defaults to issuerURL: they're only ever
+	// different when core-api reaches Zitadel over an internal address
+	// (e.g. a Docker Compose service name) that differs from Zitadel's
+	// externally-configured issuer (e.g. localhost or a LAN IP for phone
+	// testing) — see NewZitadelVerifier's doc comment.
+	discoveryURL := getEnv("ZITADEL_DISCOVERY_URL", issuerURL)
 	audience := requireEnv("ZITADEL_AUDIENCE")
 	zitadelBaseURL := requireEnv("ZITADEL_BASE_URL")
 	zitadelServiceToken := requireEnv("ZITADEL_SERVICE_TOKEN")
@@ -39,7 +45,7 @@ func main() {
 		log.Fatalf("core-api: %v", err)
 	}
 
-	verifier, err := auth.NewZitadelVerifier(ctx, issuerURL, audience)
+	verifier, err := auth.NewZitadelVerifier(ctx, discoveryURL, issuerURL, audience)
 	if err != nil {
 		log.Fatalf("core-api: %v", err)
 	}
