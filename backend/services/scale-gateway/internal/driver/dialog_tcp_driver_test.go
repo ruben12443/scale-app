@@ -17,7 +17,7 @@ func fakeScale(t *testing.T, conn net.Conn, respondWith []byte) <-chan []byte {
 	t.Helper()
 	received := make(chan []byte, 1)
 	go func() {
-		frame, err := readFrame(conn)
+		frame, err := protocol.ReadFrame(conn)
 		if err != nil {
 			received <- nil
 			return

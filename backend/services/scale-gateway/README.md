@@ -120,6 +120,31 @@ will evolve once the exact mobile app flows are finalized.
 go run ./cmd/scale-gateway -config config.example.json
 ```
 
+## Testing locally without a physical scale
+
+`cmd/fake-scale` simulates a Dialog-speaking scale over a real TCP
+listener: it answers every set-price request with a fixed weight and the
+total that implies, exactly like a real scale after settling. Point a
+scale-gateway config's `address` at it instead of real hardware:
+
+```
+go run ./cmd/fake-scale -addr :9999 -variant 02 -weight-grams 1250
+```
+
+then, in another terminal, run scale-gateway against a config whose scale
+`address` is `127.0.0.1:9999`. `internal/fakescale`'s own tests drive the
+*real* `driver.DialogTCPDriver` (the same code used against actual
+hardware) against this simulator — verified against production client
+code, not just its own codec — and this was additionally run as real,
+separate OS processes (fake-scale + scale-gateway binaries, talking over
+actual TCP sockets, driven by real HTTP requests) to confirm the whole
+pipeline end to end, not just via Go's in-process tests.
+
+Flags: `-variant` (`02` or `04`), `-weight-grams` (default `1250`),
+`-status` (defaults to `"1"` for variant 02, `"100"` for variant 04) — see
+the note above on the status field's meaning being unknown regardless of
+which value you pick.
+
 ## Testing
 
 ```

@@ -60,3 +60,34 @@ func (Dialog04Codec) DecodeTransactionResponse(frame []byte) (TransactionResult,
 		RawFrame:    append([]byte(nil), frame...),
 	}, nil
 }
+
+func (Dialog04Codec) DecodeSetPriceRequest(frame []byte) (int, error) {
+	payload, err := ParseFrame(frame)
+	if err != nil {
+		return 0, fmt.Errorf("dialog04: %w", err)
+	}
+	if len(payload) != dialog04PriceWidth {
+		return 0, fmt.Errorf("dialog04: set-price payload length %d, want %d", len(payload), dialog04PriceWidth)
+	}
+	price, err := parseDigits(string(payload))
+	if err != nil {
+		return 0, fmt.Errorf("dialog04: price field: %w", err)
+	}
+	return price, nil
+}
+
+func (Dialog04Codec) EncodeTransactionResponse(statusCode string, weightGrams, priceCents int) ([]byte, error) {
+	if len(statusCode) != dialog04StatusWidth {
+		return nil, fmt.Errorf("dialog04: status code must be exactly %d character(s), got %q", dialog04StatusWidth, statusCode)
+	}
+	weightField, err := formatDigits(weightGrams, dialog04WeightWidth)
+	if err != nil {
+		return nil, fmt.Errorf("dialog04: encode weight: %w", err)
+	}
+	priceField, err := formatDigits(priceCents, dialog04RespPriceW)
+	if err != nil {
+		return nil, fmt.Errorf("dialog04: encode price: %w", err)
+	}
+	payload := statusCode + weightField + priceField
+	return BuildFrame([]byte(payload)), nil
+}

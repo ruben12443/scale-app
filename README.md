@@ -63,6 +63,13 @@ compose pattern, but treat it as unverified until run for real. Same
 caveat applies to the Zitadel and Stripe API integrations themselves; see
 `backend/services/core-api/README.md` for specifics.
 
+**No physical scale?** `scale-gateway` needs a real scale (or a
+serial-to-Ethernet adapter in front of one) to do anything useful.
+`backend/services/scale-gateway/cmd/fake-scale` simulates one over a real
+TCP listener — see that service's README for how to point scale-gateway at
+it, which lets you exercise the entire flow (mobile app → scale-gateway →
+core-api → receipt) without hardware.
+
 ## Branching
 
 Development happens on `develop`; `master` tracks released state and is

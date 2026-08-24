@@ -120,7 +120,7 @@ func (d *DialogTCPDriver) SendPriceAndAwaitTransaction(ctx context.Context, pric
 		return protocol.TransactionResult{}, fmt.Errorf("driver: write price frame: %w", err)
 	}
 
-	responseFrame, err := readFrame(conn)
+	responseFrame, err := protocol.ReadFrame(conn)
 	if err != nil {
 		return protocol.TransactionResult{}, fmt.Errorf("driver: read transaction response: %w", err)
 	}

@@ -15,8 +15,11 @@ type TransactionResult struct {
 	RawFrame    []byte
 }
 
-// Codec encodes outgoing set-price requests and decodes incoming transaction
-// responses for one Dialog protocol variant.
+// Codec encodes and decodes both directions of one Dialog protocol variant:
+// the client side (EncodeSetPrice/DecodeTransactionResponse, used by
+// driver.DialogTCPDriver talking to a real scale) and the server side
+// (DecodeSetPriceRequest/EncodeTransactionResponse, used by a scale
+// simulator standing in for one, e.g. cmd/fake-scale).
 type Codec interface {
 	// Name identifies the protocol variant, e.g. "dialog02" or "dialog04".
 	Name() string
@@ -26,4 +29,11 @@ type Codec interface {
 	// DecodeTransactionResponse parses a complete wire frame received from the
 	// scale into a TransactionResult.
 	DecodeTransactionResponse(frame []byte) (TransactionResult, error)
+	// DecodeSetPriceRequest parses a complete set-price wire frame (as sent
+	// by EncodeSetPrice) and returns the price per kg, in cents.
+	DecodeSetPriceRequest(frame []byte) (pricePerKgCents int, err error)
+	// EncodeTransactionResponse builds a complete transaction wire frame (as
+	// parsed by DecodeTransactionResponse) from a status code, weight, and
+	// total price.
+	EncodeTransactionResponse(statusCode string, weightGrams, priceCents int) ([]byte, error)
 }
