@@ -25,6 +25,10 @@ data coming from `scale-gateway`.
   by email (`SMTPSender`, stdlib `net/smtp`). No printer hardware
   integration; `RenderText` produces the content a print pathway would send
   once a target printer is chosen.
+- `internal/payment` — Stripe integration for phone-as-terminal (Stripe
+  Terminal / Tap to Pay) payments: connection tokens, PaymentIntents, and
+  status lookups, behind a `Processor` interface with a `FakeProcessor` for
+  tests.
 - `internal/api` — HTTP handlers and routing (`Server`).
 - `cmd/core-api` — the runnable entrypoint.
 
@@ -63,6 +67,9 @@ data coming from `scale-gateway`.
 | `DELETE /receipts/current/lines/{transactionId}` | any | Remove a line from the draft receipt |
 | `POST /receipts/current/finalize` | any | Lock the draft receipt; returns it with rendered text/HTML |
 | `POST /receipts/{id}/email` | any | Email a finalized receipt |
+| `POST /payments/connection-token` | any | Get a Stripe Terminal SDK connection token for the mobile app |
+| `POST /receipts/{id}/payment` | any | Start a card-present charge for a finalized receipt's total |
+| `POST /webhooks/stripe` | Stripe signature, not a bearer token | Payment intent status updates |
 
 "any" means any authenticated user in the tenant (vendor or admin); all
 operations are scoped to the caller's own tenant, and a target belonging to
@@ -81,6 +88,9 @@ cross-tenant existence.
 | `ZITADEL_SERVICE_TOKEN` | Bearer token for a Zitadel service account with user-management permissions |
 | `SMTP_ADDR` | SMTP server `host:port` for sending receipts |
 | `SMTP_FROM` | From address for receipt emails |
+| `STRIPE_SECRET_KEY` | Stripe secret API key |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret for the `/webhooks/stripe` endpoint (from the Stripe dashboard) |
+| `CURRENCY` | ISO currency code for payment intents, lowercase (default `chf`) |
 
 ## Running
 
@@ -110,3 +120,16 @@ request/response shapes are grounded in Zitadel's own API docs (linked in
 `internal/auth/admin_client.go`) since no live instance or credentials were
 available while building this — check it against a real instance before
 relying on it in production.
+
+**Stripe** uses the official `stripe-go` SDK, so its request/response
+shapes are correct by construction (the compiler enforces the real API
+surface) — but `StripeProcessor` itself (the code that actually calls
+Stripe) hasn't been exercised against a live Stripe account, only via
+`FakeProcessor` in tests. The webhook handler's signature verification
+*is* tested for real, using the SDK's own `webhook.GenerateTestSignedPayload`
+test helper — no live account needed for that part. Note
+`IgnoreAPIVersionMismatch: true` is set deliberately: Stripe sends webhook
+events at whatever API version the dashboard endpoint is configured for,
+which can drift from whatever `stripe-go` version this service is pinned
+to, and the handler only reads stable fields (event type, payment intent
+ID) so a mismatch isn't a real risk here.

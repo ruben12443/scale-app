@@ -54,6 +54,15 @@ type ReceiptRepository interface {
 	NextReceiptNumber(ctx context.Context, tenantID string) (int, error)
 }
 
+type PaymentRepository interface {
+	Create(ctx context.Context, p *domain.Payment) error
+	Get(ctx context.Context, id string) (*domain.Payment, error)
+	GetByStripePaymentIntentID(ctx context.Context, intentID string) (*domain.Payment, error)
+	// UpdateStatus updates a payment's status, e.g. from a Stripe webhook
+	// event.
+	UpdateStatus(ctx context.Context, id string, status domain.PaymentStatus) error
+}
+
 // Store aggregates every repository core-api depends on. Both the memory and
 // postgres packages provide a type implementing it.
 type Store interface {
@@ -62,4 +71,5 @@ type Store interface {
 	Products() ProductRepository
 	Transactions() TransactionRepository
 	Receipts() ReceiptRepository
+	Payments() PaymentRepository
 }

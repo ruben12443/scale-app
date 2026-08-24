@@ -231,3 +231,57 @@ func TestNextReceiptNumberIsSequentialPerTenant(t *testing.T) {
 		t.Fatalf("tenant t2 first number = %d, want 1 (sequences are per-tenant)", n3)
 	}
 }
+
+func TestPaymentCreateGetAndUpdateStatus(t *testing.T) {
+	s := New()
+	ctx := context.Background()
+
+	p := &domain.Payment{ID: "pay1", TenantID: "t1", ReceiptID: "r1", StripePaymentIntentID: "pi_123", AmountCents: 624, Status: domain.PaymentStatusPending}
+	if err := s.Payments().Create(ctx, p); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	got, err := s.Payments().Get(ctx, "pay1")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if got.StripePaymentIntentID != "pi_123" {
+		t.Fatalf("StripePaymentIntentID = %q, want %q", got.StripePaymentIntentID, "pi_123")
+	}
+
+	byIntent, err := s.Payments().GetByStripePaymentIntentID(ctx, "pi_123")
+	if err != nil {
+		t.Fatalf("GetByStripePaymentIntentID returned error: %v", err)
+	}
+	if byIntent.ID != "pay1" {
+		t.Fatalf("ID = %q, want %q", byIntent.ID, "pay1")
+	}
+
+	if err := s.Payments().UpdateStatus(ctx, "pay1", domain.PaymentStatusSucceeded); err != nil {
+		t.Fatalf("UpdateStatus returned error: %v", err)
+	}
+	updated, err := s.Payments().Get(ctx, "pay1")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if updated.Status != domain.PaymentStatusSucceeded {
+		t.Fatalf("Status = %q, want %q", updated.Status, domain.PaymentStatusSucceeded)
+	}
+	if updated.UpdatedAt.IsZero() {
+		t.Fatal("expected UpdatedAt to be set after UpdateStatus")
+	}
+}
+
+func TestPaymentGetNotFound(t *testing.T) {
+	s := New()
+	ctx := context.Background()
+	if _, err := s.Payments().Get(ctx, "missing"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("Get returned %v, want %v", err, storage.ErrNotFound)
+	}
+	if _, err := s.Payments().GetByStripePaymentIntentID(ctx, "missing"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("GetByStripePaymentIntentID returned %v, want %v", err, storage.ErrNotFound)
+	}
+	if err := s.Payments().UpdateStatus(ctx, "missing", domain.PaymentStatusFailed); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("UpdateStatus returned %v, want %v", err, storage.ErrNotFound)
+	}
+}

@@ -5,6 +5,7 @@ import (
 
 	"scale-app/backend/services/core-api/internal/auth"
 	"scale-app/backend/services/core-api/internal/domain"
+	"scale-app/backend/services/core-api/internal/payment"
 	"scale-app/backend/services/core-api/internal/receipt"
 	"scale-app/backend/services/core-api/internal/storage"
 )
@@ -14,10 +15,25 @@ type Server struct {
 	mux *http.ServeMux
 }
 
+// ServerConfig configures NewServer.
+type ServerConfig struct {
+	Store               storage.Store
+	Verifier            auth.TokenVerifier
+	Admin               auth.AdminClient
+	EmailSender         receipt.EmailSender
+	PaymentProcessor    payment.Processor
+	StripeWebhookSecret string
+	// Currency is the ISO currency code (lowercase, e.g. "chf", "usd") used
+	// for payment intents. core-api handles a single currency per
+	// deployment for now.
+	Currency string
+}
+
 // NewServer wires storage, auth, and every handler group into a Server.
-func NewServer(store storage.Store, verifier auth.TokenVerifier, admin auth.AdminClient, emailSender receipt.EmailSender) *Server {
+func NewServer(cfg ServerConfig) *Server {
+	store := cfg.Store
 	s := &Server{mux: http.NewServeMux()}
-	authenticated := auth.Middleware(verifier, store.Users())
+	authenticated := auth.Middleware(cfg.Verifier, store.Users())
 	adminOnly := func(h http.HandlerFunc) http.Handler {
 		return authenticated(auth.RequireRole(domain.RoleAdmin, h))
 	}
@@ -25,7 +41,7 @@ func NewServer(store storage.Store, verifier auth.TokenVerifier, admin auth.Admi
 		return authenticated(h)
 	}
 
-	users := &UserHandlers{Users: store.Users(), Admin: admin}
+	users := &UserHandlers{Users: store.Users(), Admin: cfg.Admin}
 	s.mux.Handle("POST /users", adminOnly(users.Create))
 	s.mux.Handle("GET /users", adminOnly(users.List))
 	s.mux.Handle("DELETE /users/{id}", adminOnly(users.Delete))
@@ -47,10 +63,24 @@ func NewServer(store storage.Store, verifier auth.TokenVerifier, admin auth.Admi
 		Receipts:     store.Receipts(),
 		Transactions: store.Transactions(),
 		Tenants:      store.Tenants(),
-		EmailSender:  emailSender,
+		EmailSender:  cfg.EmailSender,
 	}
 	s.mux.Handle("POST /receipts/current/finalize", anyRole(finalize.Finalize))
 	s.mux.Handle("POST /receipts/{id}/email", anyRole(finalize.Email))
+
+	payments := &PaymentHandlers{
+		Processor:     cfg.PaymentProcessor,
+		Payments:      store.Payments(),
+		Receipts:      store.Receipts(),
+		Transactions:  store.Transactions(),
+		WebhookSecret: cfg.StripeWebhookSecret,
+		Currency:      cfg.Currency,
+	}
+	s.mux.Handle("POST /payments/connection-token", anyRole(payments.ConnectionToken))
+	s.mux.Handle("POST /receipts/{id}/payment", anyRole(payments.CreatePayment))
+	// Stripe calls this directly with a signature, not a bearer token, so it
+	// is deliberately not wrapped in the auth middleware.
+	s.mux.HandleFunc("POST /webhooks/stripe", payments.StripeWebhook)
 
 	return s
 }

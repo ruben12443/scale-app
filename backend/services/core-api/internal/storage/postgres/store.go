@@ -66,6 +66,7 @@ func (s *Store) Users() storage.UserRepository               { return (*userRepo
 func (s *Store) Products() storage.ProductRepository         { return (*productRepo)(s) }
 func (s *Store) Transactions() storage.TransactionRepository { return (*transactionRepo)(s) }
 func (s *Store) Receipts() storage.ReceiptRepository         { return (*receiptRepo)(s) }
+func (s *Store) Payments() storage.PaymentRepository         { return (*paymentRepo)(s) }
 
 func noRowsToNotFound(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {

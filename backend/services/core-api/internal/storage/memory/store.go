@@ -6,6 +6,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 
 	"scale-app/backend/services/core-api/internal/domain"
 	"scale-app/backend/services/core-api/internal/storage"
@@ -21,6 +22,7 @@ type Store struct {
 	products     map[string]domain.Product
 	transactions map[string]domain.Transaction
 	receipts     map[string]domain.Receipt
+	payments     map[string]domain.Payment
 
 	nextReceiptNumber map[string]int // tenantID -> next number
 }
@@ -33,6 +35,7 @@ func New() *Store {
 		products:          make(map[string]domain.Product),
 		transactions:      make(map[string]domain.Transaction),
 		receipts:          make(map[string]domain.Receipt),
+		payments:          make(map[string]domain.Payment),
 		nextReceiptNumber: make(map[string]int),
 	}
 }
@@ -42,6 +45,7 @@ func (s *Store) Users() storage.UserRepository               { return (*userRepo
 func (s *Store) Products() storage.ProductRepository         { return (*productRepo)(s) }
 func (s *Store) Transactions() storage.TransactionRepository { return (*transactionRepo)(s) }
 func (s *Store) Receipts() storage.ReceiptRepository         { return (*receiptRepo)(s) }
+func (s *Store) Payments() storage.PaymentRepository         { return (*paymentRepo)(s) }
 
 type tenantRepo Store
 
@@ -295,4 +299,52 @@ func cloneReceipt(rc *domain.Receipt) domain.Receipt {
 	out := *rc
 	out.TransactionIDs = append([]string(nil), rc.TransactionIDs...)
 	return out
+}
+
+type paymentRepo Store
+
+func (r *paymentRepo) Create(ctx context.Context, p *domain.Payment) error {
+	s := (*Store)(r)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.payments[p.ID] = *p
+	return nil
+}
+
+func (r *paymentRepo) Get(ctx context.Context, id string) (*domain.Payment, error) {
+	s := (*Store)(r)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.payments[id]
+	if !ok {
+		return nil, storage.ErrNotFound
+	}
+	return &p, nil
+}
+
+func (r *paymentRepo) GetByStripePaymentIntentID(ctx context.Context, intentID string) (*domain.Payment, error) {
+	s := (*Store)(r)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.payments {
+		if p.StripePaymentIntentID == intentID {
+			p := p
+			return &p, nil
+		}
+	}
+	return nil, storage.ErrNotFound
+}
+
+func (r *paymentRepo) UpdateStatus(ctx context.Context, id string, status domain.PaymentStatus) error {
+	s := (*Store)(r)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.payments[id]
+	if !ok {
+		return storage.ErrNotFound
+	}
+	p.Status = status
+	p.UpdatedAt = time.Now().UTC()
+	s.payments[id] = p
+	return nil
 }

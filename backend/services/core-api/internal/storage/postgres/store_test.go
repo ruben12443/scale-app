@@ -37,7 +37,7 @@ func openTestStore(t *testing.T) *Store {
 	// test-name-derived IDs, so leftover rows from a previous run against
 	// the same database would collide on primary keys.
 	_, err = s.pool.Exec(ctx, `TRUNCATE TABLE
-		receipt_lines, receipt_number_sequences, receipts, transactions, products, users, tenants
+		payments, receipt_lines, receipt_number_sequences, receipts, transactions, products, users, tenants
 		RESTART IDENTITY CASCADE`)
 	if err != nil {
 		t.Fatalf("truncate tables: %v", err)
@@ -159,5 +159,63 @@ func TestPostgresNextReceiptNumberIsSequential(t *testing.T) {
 	}
 	if n2 != n1+1 {
 		t.Fatalf("sequence = %d, %d, want consecutive", n1, n2)
+	}
+}
+
+func TestPostgresPaymentRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	tenant := &domain.Tenant{ID: "t-" + t.Name(), Name: "Tenant", CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Tenants().Create(ctx, tenant); err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, ZitadelSubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Users().Create(ctx, user); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	receipt := &domain.Receipt{ID: "r-" + t.Name(), TenantID: tenant.ID, UserID: user.ID, Status: domain.ReceiptStatusFinalized, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Receipts().Create(ctx, receipt); err != nil {
+		t.Fatalf("create receipt: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	p := &domain.Payment{
+		ID: "pay-" + t.Name(), TenantID: tenant.ID, ReceiptID: receipt.ID,
+		StripePaymentIntentID: "pi_" + t.Name(), AmountCents: 624,
+		Status: domain.PaymentStatusPending, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := s.Payments().Create(ctx, p); err != nil {
+		t.Fatalf("create payment: %v", err)
+	}
+
+	got, err := s.Payments().Get(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("get payment: %v", err)
+	}
+	if got.AmountCents != 624 || got.Status != domain.PaymentStatusPending {
+		t.Fatalf("unexpected payment: %+v", got)
+	}
+
+	byIntent, err := s.Payments().GetByStripePaymentIntentID(ctx, p.StripePaymentIntentID)
+	if err != nil {
+		t.Fatalf("get payment by intent id: %v", err)
+	}
+	if byIntent.ID != p.ID {
+		t.Fatalf("ID = %q, want %q", byIntent.ID, p.ID)
+	}
+
+	if err := s.Payments().UpdateStatus(ctx, p.ID, domain.PaymentStatusSucceeded); err != nil {
+		t.Fatalf("update payment status: %v", err)
+	}
+	updated, err := s.Payments().Get(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("get payment: %v", err)
+	}
+	if updated.Status != domain.PaymentStatusSucceeded {
+		t.Fatalf("Status = %q, want %q", updated.Status, domain.PaymentStatusSucceeded)
+	}
+	if !updated.UpdatedAt.After(now) {
+		t.Fatalf("UpdatedAt = %v, want it to have advanced past %v", updated.UpdatedAt, now)
 	}
 }

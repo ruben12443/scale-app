@@ -11,6 +11,7 @@ import (
 
 	"scale-app/backend/services/core-api/internal/api"
 	"scale-app/backend/services/core-api/internal/auth"
+	"scale-app/backend/services/core-api/internal/payment"
 	"scale-app/backend/services/core-api/internal/receipt"
 	"scale-app/backend/services/core-api/internal/storage/postgres"
 )
@@ -26,6 +27,9 @@ func main() {
 	zitadelServiceToken := requireEnv("ZITADEL_SERVICE_TOKEN")
 	smtpAddr := requireEnv("SMTP_ADDR")
 	smtpFrom := requireEnv("SMTP_FROM")
+	stripeSecretKey := requireEnv("STRIPE_SECRET_KEY")
+	stripeWebhookSecret := requireEnv("STRIPE_WEBHOOK_SECRET")
+	currency := getEnv("CURRENCY", "chf")
 
 	store, err := postgres.Open(ctx, dsn)
 	if err != nil {
@@ -41,8 +45,17 @@ func main() {
 	}
 	adminClient := &auth.ZitadelAdminClient{BaseURL: zitadelBaseURL, BearerToken: zitadelServiceToken}
 	emailSender := &receipt.SMTPSender{Addr: smtpAddr, From: smtpFrom}
+	processor := payment.NewStripeProcessor(stripeSecretKey)
 
-	srv := api.NewServer(store, verifier, adminClient, emailSender)
+	srv := api.NewServer(api.ServerConfig{
+		Store:               store,
+		Verifier:            verifier,
+		Admin:               adminClient,
+		EmailSender:         emailSender,
+		PaymentProcessor:    processor,
+		StripeWebhookSecret: stripeWebhookSecret,
+		Currency:            currency,
+	})
 
 	log.Printf("core-api: listening on %s", listenAddr)
 	if err := http.ListenAndServe(listenAddr, srv); err != nil {

@@ -77,3 +77,16 @@ CREATE TABLE IF NOT EXISTS receipt_number_sequences (
     tenant_id   TEXT PRIMARY KEY REFERENCES tenants(id),
     next_number INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS payments (
+    id                        TEXT PRIMARY KEY,
+    tenant_id                 TEXT NOT NULL REFERENCES tenants(id),
+    receipt_id                TEXT NOT NULL REFERENCES receipts(id),
+    stripe_payment_intent_id  TEXT NOT NULL UNIQUE,
+    amount_cents              INTEGER NOT NULL,
+    status                    TEXT NOT NULL,
+    created_at                TIMESTAMPTZ NOT NULL,
+    updated_at                TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS payments_tenant_id_idx ON payments(tenant_id);
+CREATE INDEX IF NOT EXISTS payments_receipt_id_idx ON payments(receipt_id);
