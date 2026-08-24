@@ -55,6 +55,7 @@ data coming from `scale-gateway`.
 
 | Method & path | Access | Purpose |
 |---|---|---|
+| `GET /me` | any | The caller's own user record (tenant, role, display name) — the only way a client learns this after Zitadel login |
 | `POST /users` | admin | Create a vendor user (Zitadel identity + local record) |
 | `GET /users` | admin | List the tenant's users |
 | `DELETE /users/{id}` | admin | Delete a vendor user |

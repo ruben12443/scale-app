@@ -70,6 +70,18 @@ func (h *UserHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, user)
 }
 
+// Me returns the caller's own user record. It's the only way a client can
+// learn its own tenant/role/display name after logging in via Zitadel,
+// since the ID token's subject alone doesn't carry that.
+func (h *UserHandlers) Me(w http.ResponseWriter, r *http.Request) {
+	actor, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	writeJSON(w, http.StatusOK, actor)
+}
+
 // List returns every user in the caller's tenant.
 func (h *UserHandlers) List(w http.ResponseWriter, r *http.Request) {
 	actor, ok := auth.UserFromContext(r.Context())

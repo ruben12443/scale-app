@@ -163,3 +163,33 @@ func TestUserHandlersDeleteCrossTenantReportsNotFound(t *testing.T) {
 		t.Fatalf("status = %d, want %d (cross-tenant delete should not leak existence)", rec.Code, http.StatusNotFound)
 	}
 }
+
+func TestUserHandlersMe(t *testing.T) {
+	h, _, _ := newTestUserHandlers(t)
+	actor := &domain.User{ID: "u1", TenantID: "tenant-1", Role: domain.RoleVendor, DisplayName: "Jane"}
+	req := requestAs(actor, http.MethodGet, "/me", nil)
+	rec := httptest.NewRecorder()
+	h.Me(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var got domain.User
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.ID != "u1" || got.DisplayName != "Jane" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestUserHandlersMeUnauthenticated(t *testing.T) {
+	h, _, _ := newTestUserHandlers(t)
+	req := requestAs(nil, http.MethodGet, "/me", nil)
+	rec := httptest.NewRecorder()
+	h.Me(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}

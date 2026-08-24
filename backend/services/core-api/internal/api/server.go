@@ -42,6 +42,7 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 
 	users := &UserHandlers{Users: store.Users(), Admin: cfg.Admin}
+	s.mux.Handle("GET /me", anyRole(users.Me))
 	s.mux.Handle("POST /users", adminOnly(users.Create))
 	s.mux.Handle("GET /users", adminOnly(users.List))
 	s.mux.Handle("DELETE /users/{id}", adminOnly(users.Delete))
