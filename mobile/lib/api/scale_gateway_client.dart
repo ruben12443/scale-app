@@ -27,7 +27,10 @@ class ScaleGatewayClient {
         .toList();
   }
 
-  Future<ScaleWeighResult> sendPrice(String scaleId, int pricePerKgCents) async {
+  Future<ScaleWeighResult> sendPrice(
+    String scaleId,
+    int pricePerKgCents,
+  ) async {
     final resp = await _http.post(
       _uri('/scales/$scaleId/transactions'),
       headers: {'Content-Type': 'application/json'},

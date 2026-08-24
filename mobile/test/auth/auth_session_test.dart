@@ -27,7 +27,9 @@ void main() {
     test('is true once past expiry', () {
       final session = AuthSession(
         accessToken: 'tok',
-        accessTokenExpiration: DateTime.now().subtract(const Duration(minutes: 1)),
+        accessTokenExpiration: DateTime.now().subtract(
+          const Duration(minutes: 1),
+        ),
       );
       expect(session.isExpired(), isTrue);
     });

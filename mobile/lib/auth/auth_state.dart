@@ -61,7 +61,9 @@ class AuthState extends ChangeNotifier {
     }
     final refreshToken = session.refreshToken;
     if (refreshToken == null) {
-      throw StateError('access token expired and no refresh token is available');
+      throw StateError(
+        'access token expired and no refresh token is available',
+      );
     }
     _session = await _authService.refresh(refreshToken);
     await _persistRefreshToken();

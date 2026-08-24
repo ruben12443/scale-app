@@ -27,42 +27,42 @@ void main() {
       expect(scales.first.connected, isTrue);
     });
 
-    test('sendPrice posts price_per_kg_cents and parses the weigh result', () async {
-      Map<String, dynamic>? gotBody;
-      String? gotPath;
-      final client = ScaleGatewayClient(
-        baseUrl: 'http://192.168.1.50:8080',
-        httpClient: MockClient((req) async {
-          gotPath = req.url.path;
-          gotBody = jsonDecode(req.body) as Map<String, dynamic>;
-          return http.Response(
-            jsonEncode({
-              'scale_id': 'scale-1',
-              'status_code': '1',
-              'weight_grams': 1250,
-              'price_cents': 624,
-            }),
-            200,
-          );
-        }),
-      );
+    test(
+      'sendPrice posts price_per_kg_cents and parses the weigh result',
+      () async {
+        Map<String, dynamic>? gotBody;
+        String? gotPath;
+        final client = ScaleGatewayClient(
+          baseUrl: 'http://192.168.1.50:8080',
+          httpClient: MockClient((req) async {
+            gotPath = req.url.path;
+            gotBody = jsonDecode(req.body) as Map<String, dynamic>;
+            return http.Response(
+              jsonEncode({
+                'scale_id': 'scale-1',
+                'status_code': '1',
+                'weight_grams': 1250,
+                'price_cents': 624,
+              }),
+              200,
+            );
+          }),
+        );
 
-      final result = await client.sendPrice('scale-1', 499);
+        final result = await client.sendPrice('scale-1', 499);
 
-      expect(gotPath, '/scales/scale-1/transactions');
-      expect(gotBody, {'price_per_kg_cents': 499});
-      expect(result.weightGrams, 1250);
-      expect(result.priceCents, 624);
-    });
+        expect(gotPath, '/scales/scale-1/transactions');
+        expect(gotBody, {'price_per_kg_cents': 499});
+        expect(result.weightGrams, 1250);
+        expect(result.priceCents, 624);
+      },
+    );
 
     test('throws ApiException on a non-2xx response', () async {
       final client = ScaleGatewayClient(
         baseUrl: 'http://192.168.1.50:8080',
         httpClient: MockClient((req) async {
-          return http.Response(
-            jsonEncode({'error': 'scale unreachable'}),
-            502,
-          );
+          return http.Response(jsonEncode({'error': 'scale unreachable'}), 502);
         }),
       );
 

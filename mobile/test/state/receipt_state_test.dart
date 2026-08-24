@@ -6,7 +6,9 @@ import 'package:http/testing.dart';
 import 'package:scale_app/api/core_api_client.dart';
 import 'package:scale_app/state/receipt_state.dart';
 
-Map<String, dynamic> _draftReceiptJson({List<Map<String, dynamic>> lines = const []}) {
+Map<String, dynamic> _draftReceiptJson({
+  List<Map<String, dynamic>> lines = const [],
+}) {
   return {
     'id': 'r1',
     'tenant_id': 't1',
@@ -124,31 +126,34 @@ void main() {
     expect(state.current?.id, 'r1');
   });
 
-  test('finalizeReceipt updates current and returns the finalized receipt', () async {
-    final api = CoreApiClient(
-      baseUrl: 'https://api.test',
-      authToken: () async => 'tok',
-      httpClient: MockClient((req) async {
-        return http.Response(
-          jsonEncode({
-            ..._draftReceiptJson(lines: [_txJson('tx1')]),
-            'status': 'finalized',
-            'number': 1,
-            'rendered_text': 'text',
-            'rendered_html': '<html></html>',
-          }),
-          200,
-        );
-      }),
-    );
-    final state = ReceiptState(api);
+  test(
+    'finalizeReceipt updates current and returns the finalized receipt',
+    () async {
+      final api = CoreApiClient(
+        baseUrl: 'https://api.test',
+        authToken: () async => 'tok',
+        httpClient: MockClient((req) async {
+          return http.Response(
+            jsonEncode({
+              ..._draftReceiptJson(lines: [_txJson('tx1')]),
+              'status': 'finalized',
+              'number': 1,
+              'rendered_text': 'text',
+              'rendered_html': '<html></html>',
+            }),
+            200,
+          );
+        }),
+      );
+      final state = ReceiptState(api);
 
-    final finalized = await state.finalizeReceipt();
+      final finalized = await state.finalizeReceipt();
 
-    expect(finalized.isDraft, isFalse);
-    expect(state.current?.isDraft, isFalse);
-    expect(state.current?.number, 1);
-  });
+      expect(finalized.isDraft, isFalse);
+      expect(state.current?.isDraft, isFalse);
+      expect(state.current?.number, 1);
+    },
+  );
 
   test('emailReceipt throws if there is no current receipt', () async {
     final api = CoreApiClient(

@@ -85,7 +85,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(child: Text('Failed to load users: ${snapshot.error}'));
+            return Center(
+              child: Text('Failed to load users: ${snapshot.error}'),
+            );
           }
           final users = snapshot.data!;
           return ListView.builder(

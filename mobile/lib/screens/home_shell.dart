@@ -47,13 +47,19 @@ class _HomeShellState extends State<HomeShell> {
     final isAdmin = user?.isAdmin ?? false;
 
     final tabs = <Widget>[
-      ScalesScreen(client: widget.gatewayClient, onSelectScale: _openSellScreen),
+      ScalesScreen(
+        client: widget.gatewayClient,
+        onSelectScale: _openSellScreen,
+      ),
       const ReceiptScreen(),
       if (isAdmin) AdminUsersScreen(client: widget.coreApiClient),
     ];
     final destinations = <NavigationDestination>[
       const NavigationDestination(icon: Icon(Icons.scale), label: 'Scales'),
-      const NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Receipt'),
+      const NavigationDestination(
+        icon: Icon(Icons.receipt_long),
+        label: 'Receipt',
+      ),
       if (isAdmin)
         const NavigationDestination(
           icon: Icon(Icons.admin_panel_settings),

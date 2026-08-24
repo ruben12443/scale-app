@@ -39,7 +39,9 @@ class _ScalesScreenState extends State<ScalesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Scales'),
-        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh)],
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
+        ],
       ),
       body: FutureBuilder<List<ScaleStatus>>(
         future: _future,
@@ -48,7 +50,9 @@ class _ScalesScreenState extends State<ScalesScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(child: Text('Failed to load scales: ${snapshot.error}'));
+            return Center(
+              child: Text('Failed to load scales: ${snapshot.error}'),
+            );
           }
           final scales = snapshot.data!;
           if (scales.isEmpty) {
@@ -65,9 +69,15 @@ class _ScalesScreenState extends State<ScalesScreen> {
                   color: scale.connected ? Colors.green : Colors.red,
                 ),
                 title: Text(scale.id),
-                subtitle: Text(scale.connected ? 'Connected' : (scale.lastError ?? 'Not connected')),
+                subtitle: Text(
+                  scale.connected
+                      ? 'Connected'
+                      : (scale.lastError ?? 'Not connected'),
+                ),
                 enabled: scale.connected,
-                onTap: scale.connected ? () => widget.onSelectScale(scale) : null,
+                onTap: scale.connected
+                    ? () => widget.onSelectScale(scale)
+                    : null,
               );
             },
           );

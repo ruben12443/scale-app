@@ -97,7 +97,9 @@ class CoreApiClient {
 
   Future<List<AppUser>> listUsers() async {
     final data = await _send('GET', '/users') as List<dynamic>;
-    return data.map((u) => AppUser.fromJson(u as Map<String, dynamic>)).toList();
+    return data
+        .map((u) => AppUser.fromJson(u as Map<String, dynamic>))
+        .toList();
   }
 
   Future<AppUser> createUser({
@@ -118,7 +120,9 @@ class CoreApiClient {
 
   Future<List<Product>> listProducts() async {
     final data = await _send('GET', '/products') as List<dynamic>;
-    return data.map((p) => Product.fromJson(p as Map<String, dynamic>)).toList();
+    return data
+        .map((p) => Product.fromJson(p as Map<String, dynamic>))
+        .toList();
   }
 
   // --- Transactions / draft receipt ---
@@ -175,14 +179,18 @@ class CoreApiClient {
   // --- Payments ---
 
   Future<String> getPaymentConnectionToken() async {
-    final data = await _send('POST', '/payments/connection-token')
-        as Map<String, dynamic>;
+    final data = await _send(
+      'POST',
+      '/payments/connection-token',
+    ) as Map<String, dynamic>;
     return data['secret'] as String;
   }
 
   Future<CreatePaymentResult> createPayment(String receiptId) async {
-    final data = await _send('POST', '/receipts/$receiptId/payment')
-        as Map<String, dynamic>;
+    final data = await _send(
+      'POST',
+      '/receipts/$receiptId/payment',
+    ) as Map<String, dynamic>;
     return (
       paymentId: data['payment_id'] as String,
       paymentIntentId: data['payment_intent_id'] as String,

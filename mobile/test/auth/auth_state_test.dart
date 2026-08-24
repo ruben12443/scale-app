@@ -36,7 +36,10 @@ class FakeAuthService extends AuthService {
     refreshCalls++;
     lastRefreshTokenUsed = refreshToken;
     if (refreshError != null) throw refreshError!;
-    return AuthSession(accessToken: 'access-refreshed', refreshToken: refreshToken);
+    return AuthSession(
+      accessToken: 'access-refreshed',
+      refreshToken: refreshToken,
+    );
   }
 }
 
@@ -102,41 +105,50 @@ void main() {
       expect(state.accessToken, 'access-refreshed');
     });
 
-    test('clears the stored token and returns false if refresh fails', () async {
-      storageData['zitadel_refresh_token'] = 'stale-refresh';
-      final fakeService = FakeAuthService()..refreshError = Exception('invalid_grant');
-      final state = AuthState(fakeService, storage: storage);
+    test(
+      'clears the stored token and returns false if refresh fails',
+      () async {
+        storageData['zitadel_refresh_token'] = 'stale-refresh';
+        final fakeService = FakeAuthService()
+          ..refreshError = Exception('invalid_grant');
+        final state = AuthState(fakeService, storage: storage);
 
-      final restored = await state.tryRestoreSession();
+        final restored = await state.tryRestoreSession();
 
-      expect(restored, isFalse);
-      expect(storageData.containsKey('zitadel_refresh_token'), isFalse);
-    });
+        expect(restored, isFalse);
+        expect(storageData.containsKey('zitadel_refresh_token'), isFalse);
+      },
+    );
   });
 
   group('AuthState.ensureFreshAccessToken', () {
-    test('returns the current token without refreshing if not expired', () async {
-      final fakeService = FakeAuthService()
-        ..loginResult = AuthSession(
-          accessToken: 'access-1',
-          refreshToken: 'refresh-1',
-          accessTokenExpiration: DateTime.now().add(const Duration(hours: 1)),
-        );
-      final state = AuthState(fakeService, storage: storage);
-      await state.login();
+    test(
+      'returns the current token without refreshing if not expired',
+      () async {
+        final fakeService = FakeAuthService()
+          ..loginResult = AuthSession(
+            accessToken: 'access-1',
+            refreshToken: 'refresh-1',
+            accessTokenExpiration: DateTime.now().add(const Duration(hours: 1)),
+          );
+        final state = AuthState(fakeService, storage: storage);
+        await state.login();
 
-      final token = await state.ensureFreshAccessToken();
+        final token = await state.ensureFreshAccessToken();
 
-      expect(token, 'access-1');
-      expect(fakeService.refreshCalls, 0);
-    });
+        expect(token, 'access-1');
+        expect(fakeService.refreshCalls, 0);
+      },
+    );
 
     test('refreshes when the token is expired', () async {
       final fakeService = FakeAuthService()
         ..loginResult = AuthSession(
           accessToken: 'access-1',
           refreshToken: 'refresh-1',
-          accessTokenExpiration: DateTime.now().subtract(const Duration(minutes: 1)),
+          accessTokenExpiration: DateTime.now().subtract(
+            const Duration(minutes: 1),
+          ),
         );
       final state = AuthState(fakeService, storage: storage);
       await state.login();

@@ -86,9 +86,8 @@ class _SellScreenState extends State<SellScreen> {
           _pendingProduct = null;
           _pendingResult = null;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Added to receipt')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Added to receipt')));
       }
     } catch (e) {
       setState(() => _error = e.toString());
@@ -132,7 +131,9 @@ class _SellScreenState extends State<SellScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return Center(child: Text('Failed to load products: ${snapshot.error}'));
+                  return Center(
+                    child: Text('Failed to load products: ${snapshot.error}'),
+                  );
                 }
                 final products = snapshot.data!;
                 return ListView.builder(
@@ -189,7 +190,9 @@ class _VerifyCard extends StatelessWidget {
             Text(product.name, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text('Weight: ${weightKg.toStringAsFixed(3)} kg'),
-            Text('Unit price: ${ScaleTransaction.formatCents(product.pricePerKgCents)}/kg'),
+            Text(
+              'Unit price: ${ScaleTransaction.formatCents(product.pricePerKgCents)}/kg',
+            ),
             Text(
               'Total: ${ScaleTransaction.formatCents(result.priceCents)}',
               style: Theme.of(context).textTheme.titleMedium,

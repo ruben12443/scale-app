@@ -69,24 +69,27 @@ void main() {
       expect(gotBody, {'email': 'jane@example.com', 'display_name': 'Jane'});
     });
 
-    test('throws ApiException with the server\'s error message on non-2xx', () async {
-      final client = CoreApiClient(
-        baseUrl: 'https://api.test',
-        authToken: () async => null,
-        httpClient: MockClient((req) async {
-          return http.Response(jsonEncode({'error': 'not found'}), 404);
-        }),
-      );
+    test(
+      'throws ApiException with the server\'s error message on non-2xx',
+      () async {
+        final client = CoreApiClient(
+          baseUrl: 'https://api.test',
+          authToken: () async => null,
+          httpClient: MockClient((req) async {
+            return http.Response(jsonEncode({'error': 'not found'}), 404);
+          }),
+        );
 
-      expect(
-        () => client.listUsers(),
-        throwsA(
-          isA<ApiException>()
-              .having((e) => e.statusCode, 'statusCode', 404)
-              .having((e) => e.message, 'message', 'not found'),
-        ),
-      );
-    });
+        expect(
+          () => client.listUsers(),
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.statusCode, 'statusCode', 404)
+                .having((e) => e.message, 'message', 'not found'),
+          ),
+        );
+      },
+    );
 
     test('omits Authorization header when no token is available', () async {
       String? gotAuth;
@@ -107,46 +110,49 @@ void main() {
       expect(gotAuth, isNull);
     });
 
-    test('createTransaction parses the nested transaction + receipt_id', () async {
-      final client = CoreApiClient(
-        baseUrl: 'https://api.test',
-        authToken: () async => 'tok',
-        httpClient: MockClient((req) async {
-          expect(req.url.path, '/transactions');
-          return http.Response(
-            jsonEncode({
-              'transaction': {
-                'id': 'tx1',
-                'tenant_id': 't1',
-                'user_id': 'u1',
-                'product_id': 'p1',
-                'product_name': 'Tomatoes',
-                'scale_id': 'scale-1',
-                'weight_grams': 1250,
-                'unit_price_cents': 499,
-                'total_price_cents': 624,
-                'scale_status_code': '1',
-                'created_at': '2026-08-23T14:30:00Z',
-              },
-              'receipt_id': 'r1',
-            }),
-            201,
-          );
-        }),
-      );
+    test(
+      'createTransaction parses the nested transaction + receipt_id',
+      () async {
+        final client = CoreApiClient(
+          baseUrl: 'https://api.test',
+          authToken: () async => 'tok',
+          httpClient: MockClient((req) async {
+            expect(req.url.path, '/transactions');
+            return http.Response(
+              jsonEncode({
+                'transaction': {
+                  'id': 'tx1',
+                  'tenant_id': 't1',
+                  'user_id': 'u1',
+                  'product_id': 'p1',
+                  'product_name': 'Tomatoes',
+                  'scale_id': 'scale-1',
+                  'weight_grams': 1250,
+                  'unit_price_cents': 499,
+                  'total_price_cents': 624,
+                  'scale_status_code': '1',
+                  'created_at': '2026-08-23T14:30:00Z',
+                },
+                'receipt_id': 'r1',
+              }),
+              201,
+            );
+          }),
+        );
 
-      final result = await client.createTransaction(
-        productId: 'p1',
-        scaleId: 'scale-1',
-        weightGrams: 1250,
-        unitPriceCents: 499,
-        totalPriceCents: 624,
-        scaleStatusCode: '1',
-      );
+        final result = await client.createTransaction(
+          productId: 'p1',
+          scaleId: 'scale-1',
+          weightGrams: 1250,
+          unitPriceCents: 499,
+          totalPriceCents: 624,
+          scaleStatusCode: '1',
+        );
 
-      expect(result.receiptId, 'r1');
-      expect(result.transaction.productName, 'Tomatoes');
-    });
+        expect(result.receiptId, 'r1');
+        expect(result.transaction.productName, 'Tomatoes');
+      },
+    );
 
     test('deleteUser handles an empty 204 response body', () async {
       var calls = 0;

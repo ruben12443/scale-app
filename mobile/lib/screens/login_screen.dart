@@ -54,7 +54,10 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const Icon(Icons.storefront, size: 64),
               const SizedBox(height: 16),
-              const Text('scale-app', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+              const Text(
+                'scale-app',
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 32),
               if (_error != null) ...[
                 Text(_error!, style: const TextStyle(color: Colors.red)),

@@ -57,9 +57,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     try {
       await receiptState.emailReceipt(to);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Receipt emailed to $to')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Receipt emailed to $to')));
       }
     } catch (e) {
       _showError(e);
@@ -104,9 +103,15 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                             trailing: receipt.isDraft
                                 ? IconButton(
                                     icon: const Icon(Icons.delete_outline),
-                                    onPressed: _busy ? null : () => _removeLine(line.id),
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _removeLine(line.id),
                                   )
-                                : Text(ScaleTransaction.formatCents(line.totalPriceCents)),
+                                : Text(
+                                    ScaleTransaction.formatCents(
+                                      line.totalPriceCents,
+                                    ),
+                                  ),
                           );
                         },
                       ),
@@ -121,14 +126,19 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                         const Text('Total', style: TextStyle(fontSize: 18)),
                         Text(
                           ScaleTransaction.formatCents(receipt.totalCents),
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
                     if (receipt.isDraft)
                       FilledButton(
-                        onPressed: _busy || receipt.lines.isEmpty ? null : _finalize,
+                        onPressed: _busy || receipt.lines.isEmpty
+                            ? null
+                            : _finalize,
                         child: const Text('Finalize receipt'),
                       )
                     else
