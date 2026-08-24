@@ -27,21 +27,67 @@ services:
       timeout: 5s
       retries: 10
 
+  # Zitadel v4 split its login UI out into a separate service ("Login V2",
+  # a Next.js app - see zitadel-login below); the zitadel-api container
+  # alone does not serve /ui/v2/login/* at all. The official reference
+  # compose (github.com/zitadel/zitadel/blob/main/deploy/compose/docker-compose.yml)
+  # unifies both under one domain/port via Traefik; we skip Traefik here
+  # for local-dev simplicity and just publish both containers on their own
+  # ports directly (zitadel-api on 8080, zitadel-login on 3000) - the
+  # browser is redirected between them via full URLs, which works fine
+  # against localhost even without a shared origin.
   zitadel:
     image: ghcr.io/zitadel/zitadel:latest
     command: >
       start-from-init
       --masterkey "${ZITADEL_MASTERKEY}"
-      --tlsMode disabled
     environment:
       ZITADEL_DATABASE_POSTGRES_DSN: "postgresql://zitadel:${ZITADEL_DB_PASSWORD}@zitadel-db:5432/zitadel?sslmode=disable"
       ZITADEL_EXTERNALDOMAIN: localhost
       ZITADEL_EXTERNALPORT: "8080"
       ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_TLS_ENABLED: "false"
+      # Auto-creates the machine user + Personal Access Token that
+      # zitadel-login authenticates to the API with, and writes the PAT to
+      # the shared zitadel-bootstrap volume for zitadel-login to read.
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /zitadel/bootstrap/login-client.pat
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: "Automatically Initialized IAM_LOGIN_CLIENT"
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2039-01-01T00:00:00Z"
+      # Forces the v2 login flow (matches what your logs already showed
+      # Zitadel defaulting to) and points it at zitadel-login's published
+      # port instead of the unset default, which is what 404'd.
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "true"
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: "http://localhost:3000/ui/v2/login/"
+      ZITADEL_OIDC_DEFAULTLOGINURLV2: "http://localhost:3000/ui/v2/login/login?authRequest="
+      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: "http://localhost:3000/ui/v2/login/logout?post_logout_redirect="
     ports:
       - "8080:8080"
+    volumes:
+      - zitadel-bootstrap:/zitadel/bootstrap:rw
+    healthcheck:
+      test: ["CMD", "/app/zitadel", "ready"]
+      interval: 10s
+      timeout: 30s
+      retries: 12
+      start_period: 20s
     depends_on:
       zitadel-db:
+        condition: service_healthy
+
+  zitadel-login:
+    image: ghcr.io/zitadel/zitadel-login:latest
+    environment:
+      ZITADEL_API_URL: "http://zitadel:8080"
+      NEXT_PUBLIC_BASE_PATH: /ui/v2/login
+      ZITADEL_SERVICE_USER_TOKEN_FILE: /zitadel/bootstrap/login-client.pat
+    ports:
+      - "3000:3000"
+    volumes:
+      - zitadel-bootstrap:/zitadel/bootstrap:ro
+    depends_on:
+      zitadel:
         condition: service_healthy
 
   mailpit:
@@ -82,8 +128,9 @@ services:
       postgres:
         condition: service_healthy
       zitadel:
-        condition: service_started
+        condition: service_healthy
 
 volumes:
   postgres-data:
   zitadel-db-data:
+  zitadel-bootstrap:

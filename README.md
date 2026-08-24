@@ -47,14 +47,22 @@ docker compose up --build
 ```
 
 **Not automatable in the compose file itself:** on first run, Zitadel needs
-manual one-time setup through its console (http://localhost:8080) — create
-a project and an API application (this becomes `ZITADEL_AUDIENCE`), then a
-service user with a personal access token that has user-management
-permissions (this becomes `ZITADEL_SERVICE_TOKEN`). Put both in `.env` and
-restart `core-api`. Stripe test-mode keys come from
+manual one-time setup through its console (http://localhost:8080/ui/console —
+logging in redirects through the separate login UI at localhost:3000, see
+below) — create a project and an API application (this becomes
+`ZITADEL_AUDIENCE`), then a service user with a personal access token that
+has user-management permissions (this becomes `ZITADEL_SERVICE_TOKEN`). Put
+both in `.env` and restart `core-api`. Stripe test-mode keys come from
 https://dashboard.stripe.com/test/apikeys; for local webhook testing, the
 Stripe CLI's `stripe listen --forward-to localhost:8081/webhooks/stripe`
 prints a webhook secret to use as `STRIPE_WEBHOOK_SECRET`.
+
+Zitadel v4 splits its login UI into a separate service (`zitadel-login`,
+port 3000) from the main API (`zitadel`, port 8080) — the official
+reference deployment unifies both under one domain via Traefik, which this
+compose file skips for local-dev simplicity; both are just published on
+their own ports instead. Visiting `/ui/console` on 8080 will redirect
+through 3000 for the actual login step, which is expected.
 
 **Unexecuted:** this compose file hasn't been run end-to-end in the
 environment this was built in (no Docker available there) — it's built
