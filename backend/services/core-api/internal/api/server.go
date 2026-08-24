@@ -67,6 +67,7 @@ func NewServer(cfg ServerConfig) *Server {
 		EmailSender:  cfg.EmailSender,
 	}
 	s.mux.Handle("POST /receipts/current/finalize", anyRole(finalize.Finalize))
+	s.mux.Handle("POST /receipts/{id}/reopen", anyRole(finalize.Reopen))
 	s.mux.Handle("POST /receipts/{id}/email", anyRole(finalize.Email))
 
 	payments := &PaymentHandlers{

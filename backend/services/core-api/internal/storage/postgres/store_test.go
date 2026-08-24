@@ -83,7 +83,7 @@ func TestPostgresReceiptLineLifecycle(t *testing.T) {
 	if err := s.Users().Create(ctx, user); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	product := &domain.Product{ID: "p-" + t.Name(), TenantID: tenant.ID, Name: "Tomatoes", PricePerKgCents: 499, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	product := &domain.Product{ID: "p-" + t.Name(), TenantID: tenant.ID, Name: "Tomatoes", PricingType: domain.PricingPerKg, UnitPriceCents: 499, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
 	if err := s.Products().Create(ctx, product); err != nil {
 		t.Fatalf("create product: %v", err)
 	}
@@ -137,6 +137,115 @@ func TestPostgresReceiptLineLifecycle(t *testing.T) {
 	}
 	if final.Number != number {
 		t.Fatalf("Number = %d, want %d", final.Number, number)
+	}
+}
+
+func TestPostgresPerPieceTransactionRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	tenant := &domain.Tenant{ID: "t-" + t.Name(), Name: "Tenant", CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Tenants().Create(ctx, tenant); err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, ZitadelSubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Users().Create(ctx, user); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	product := &domain.Product{ID: "p-" + t.Name(), TenantID: tenant.ID, Name: "Eggs (dozen)", PricingType: domain.PricingPerPiece, UnitPriceCents: 550, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Products().Create(ctx, product); err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+
+	tx := &domain.Transaction{
+		ID: "tx-" + t.Name(), TenantID: tenant.ID, UserID: user.ID, ProductID: product.ID, ProductName: product.Name,
+		PricingType: domain.PricingPerPiece, Quantity: 3, UnitPriceCents: 550, TotalPriceCents: 1650,
+		CreatedAt: time.Now().UTC().Truncate(time.Microsecond),
+	}
+	if err := s.Transactions().Create(ctx, tx); err != nil {
+		t.Fatalf("create transaction: %v", err)
+	}
+
+	got, err := s.Transactions().Get(ctx, tx.ID)
+	if err != nil {
+		t.Fatalf("get transaction: %v", err)
+	}
+	if got.PricingType != domain.PricingPerPiece || got.Quantity != 3 || got.WeightGrams != 0 || got.ScaleID != "" {
+		t.Fatalf("unexpected transaction: %+v", got)
+	}
+}
+
+func TestPostgresReceiptReopenAndSentRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	tenant := &domain.Tenant{ID: "t-" + t.Name(), Name: "Tenant", CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Tenants().Create(ctx, tenant); err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, ZitadelSubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Users().Create(ctx, user); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	receipt := &domain.Receipt{ID: "r-" + t.Name(), TenantID: tenant.ID, UserID: user.ID, Status: domain.ReceiptStatusDraft, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	_ = receipt.AddLine("tx-1")
+	if err := s.Receipts().Create(ctx, receipt); err != nil {
+		t.Fatalf("create receipt: %v", err)
+	}
+
+	number, err := s.Receipts().NextReceiptNumber(ctx, tenant.ID)
+	if err != nil {
+		t.Fatalf("NextReceiptNumber returned error: %v", err)
+	}
+	if err := receipt.Finalize(number, time.Now().UTC().Truncate(time.Microsecond)); err != nil {
+		t.Fatalf("Finalize returned error: %v", err)
+	}
+	if err := s.Receipts().Update(ctx, receipt); err != nil {
+		t.Fatalf("update finalized receipt: %v", err)
+	}
+
+	if err := receipt.Reopen(); err != nil {
+		t.Fatalf("Reopen returned error: %v", err)
+	}
+	if err := s.Receipts().Update(ctx, receipt); err != nil {
+		t.Fatalf("update reopened receipt: %v", err)
+	}
+	reopened, err := s.Receipts().Get(ctx, receipt.ID)
+	if err != nil {
+		t.Fatalf("get reopened receipt: %v", err)
+	}
+	if reopened.Status != domain.ReceiptStatusDraft || reopened.Number != 0 || reopened.FinalizedAt != nil {
+		t.Fatalf("unexpected reopened receipt: %+v", reopened)
+	}
+
+	number2, err := s.Receipts().NextReceiptNumber(ctx, tenant.ID)
+	if err != nil {
+		t.Fatalf("NextReceiptNumber returned error: %v", err)
+	}
+	sentAt := time.Now().UTC().Truncate(time.Microsecond)
+	if err := reopened.Finalize(number2, sentAt); err != nil {
+		t.Fatalf("re-finalize returned error: %v", err)
+	}
+	if err := reopened.MarkSent(sentAt, "customer@example.com"); err != nil {
+		t.Fatalf("MarkSent returned error: %v", err)
+	}
+	if err := s.Receipts().Update(ctx, reopened); err != nil {
+		t.Fatalf("update sent receipt: %v", err)
+	}
+
+	sent, err := s.Receipts().Get(ctx, receipt.ID)
+	if err != nil {
+		t.Fatalf("get sent receipt: %v", err)
+	}
+	if sent.Status != domain.ReceiptStatusSent {
+		t.Fatalf("Status = %q, want %q", sent.Status, domain.ReceiptStatusSent)
+	}
+	if sent.SentTo != "customer@example.com" {
+		t.Fatalf("SentTo = %q, want %q", sent.SentTo, "customer@example.com")
+	}
+	if sent.SentAt == nil || !sent.SentAt.Equal(sentAt) {
+		t.Fatalf("SentAt = %v, want %v", sent.SentAt, sentAt)
 	}
 }
 

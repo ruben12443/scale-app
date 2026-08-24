@@ -21,8 +21,9 @@ type ProductHandlers struct {
 }
 
 type productRequest struct {
-	Name            string `json:"name"`
-	PricePerKgCents int    `json:"price_per_kg_cents"`
+	Name           string             `json:"name"`
+	PricingType    domain.PricingType `json:"pricing_type"`
+	UnitPriceCents int                `json:"unit_price_cents"`
 }
 
 // List returns every product in the caller's tenant.
@@ -54,11 +55,12 @@ func (h *ProductHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	product := &domain.Product{
-		ID:              idgen.New(),
-		TenantID:        actor.TenantID,
-		Name:            req.Name,
-		PricePerKgCents: req.PricePerKgCents,
-		CreatedAt:       time.Now().UTC(),
+		ID:             idgen.New(),
+		TenantID:       actor.TenantID,
+		Name:           req.Name,
+		PricingType:    req.PricingType,
+		UnitPriceCents: req.UnitPriceCents,
+		CreatedAt:      time.Now().UTC(),
 	}
 	if err := h.Products.Create(r.Context(), product); err != nil {
 		writeError(w, http.StatusInternalServerError, "store product: "+err.Error())
@@ -87,7 +89,8 @@ func (h *ProductHandlers) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	existing.Name = req.Name
-	existing.PricePerKgCents = req.PricePerKgCents
+	existing.PricingType = req.PricingType
+	existing.UnitPriceCents = req.UnitPriceCents
 	if err := h.Products.Update(r.Context(), existing); err != nil {
 		writeError(w, http.StatusInternalServerError, "update product: "+err.Error())
 		return
@@ -143,8 +146,12 @@ func decodeProductRequest(w http.ResponseWriter, r *http.Request) (productReques
 		writeError(w, http.StatusBadRequest, "name is required")
 		return productRequest{}, false
 	}
-	if req.PricePerKgCents < 0 {
-		writeError(w, http.StatusBadRequest, "price_per_kg_cents must not be negative")
+	if req.PricingType != domain.PricingPerKg && req.PricingType != domain.PricingPerPiece {
+		writeError(w, http.StatusBadRequest, `pricing_type must be "per_kg" or "per_piece"`)
+		return productRequest{}, false
+	}
+	if req.UnitPriceCents < 0 {
+		writeError(w, http.StatusBadRequest, "unit_price_cents must not be negative")
 		return productRequest{}, false
 	}
 	return req, true

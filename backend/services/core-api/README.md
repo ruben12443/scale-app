@@ -39,17 +39,31 @@ data coming from `scale-gateway`.
 - A `Transaction` snapshots the product's name at creation time
   (`ProductName`), so a receipt stays accurate even if the product is later
   renamed or deleted.
+- A `Product` is priced either `per_kg` (weighed on a certified scale) or
+  `per_piece` (counted). A `Transaction` carries the same `PricingType` and
+  either `WeightGrams` (per-kg, scale-computed) or `Quantity` (per-piece,
+  ordinary quantity-times-price arithmetic — no scale involved, and no
+  legal-metrology concern, since nothing is physically measured). Which
+  fields `POST /transactions` requires is derived from the referenced
+  product's own pricing type, not the caller's say-so.
 - Creating a transaction (`POST /transactions`) appends it to the caller's
   currently open draft receipt in the same action — there's no separate
   "add to receipt" step, matching the app's "verify on screen, then tap to
   lock in" flow. A draft receipt's lines can be removed
   (`DELETE /receipts/current/lines/{transactionId}`) without deleting the
   underlying transaction, which stays as an audit trail.
+- A receipt moves through three states: `draft` (mutable) ->
+  `finalized` (locked from editing, but `POST /receipts/{id}/reopen` puts
+  it back into `draft`, e.g. to fix a mis-scanned line) -> `sent` (emailed,
+  or later printed — the real point of no return; a sent receipt can never
+  be reopened or mutated again).
 - Finalizing (`POST /receipts/current/finalize`) requires at least one line,
   allocates a sequential per-tenant receipt number, and returns the
   rendered text/HTML alongside the receipt so the client can display/print
-  it without a second call. `POST /receipts/{id}/email` only works on an
-  already-finalized receipt.
+  it without a second call. Reopening clears the number and finalized-at
+  timestamp; re-finalizing allocates a fresh number. `POST /receipts/{id}/email`
+  only works on a finalized (not yet sent) receipt, and marks it `sent` on
+  success.
 
 ## HTTP API summary
 
@@ -63,11 +77,12 @@ data coming from `scale-gateway`.
 | `POST /products` | admin | Add a product |
 | `PUT /products/{id}` | admin | Update a product |
 | `DELETE /products/{id}` | admin | Delete a product |
-| `POST /transactions` | any | Record a scale-approved transaction; appends to the open draft receipt |
+| `POST /transactions` | any | Record a weighed or per-piece sale line; appends to the open draft receipt |
 | `GET /receipts/current` | any | Get (or create) the caller's open draft receipt, with lines resolved |
 | `DELETE /receipts/current/lines/{transactionId}` | any | Remove a line from the draft receipt |
 | `POST /receipts/current/finalize` | any | Lock the draft receipt; returns it with rendered text/HTML |
-| `POST /receipts/{id}/email` | any | Email a finalized receipt |
+| `POST /receipts/{id}/reopen` | any | Put a finalized (not yet sent) receipt back into draft |
+| `POST /receipts/{id}/email` | any | Email a finalized receipt; marks it sent (locked for good) |
 | `POST /payments/connection-token` | any | Get a Stripe Terminal SDK connection token for the mobile app |
 | `POST /receipts/{id}/payment` | any | Start a card-present charge for a finalized receipt's total |
 | `POST /webhooks/stripe` | Stripe signature, not a bearer token | Payment intent status updates |

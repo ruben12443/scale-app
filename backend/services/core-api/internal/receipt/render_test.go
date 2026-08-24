@@ -12,8 +12,8 @@ func sampleData() Data {
 		Number:      42,
 		FinalizedAt: time.Date(2026, 8, 23, 14, 30, 0, 0, time.UTC),
 		Lines: []LineData{
-			{ProductName: "Tomatoes", WeightGrams: 1250, UnitPriceCents: 499, TotalPriceCents: 624},
-			{ProductName: "Potatoes", WeightGrams: 2000, UnitPriceCents: 199, TotalPriceCents: 398},
+			{ProductName: "Tomatoes", Kind: LineKindWeight, WeightGrams: 1250, UnitPriceCents: 499, TotalPriceCents: 624},
+			{ProductName: "Potatoes", Kind: LineKindWeight, WeightGrams: 2000, UnitPriceCents: 199, TotalPriceCents: 398},
 		},
 	}
 }
@@ -54,5 +54,37 @@ func TestRenderHTMLContainsTotal(t *testing.T) {
 	htmlOut := RenderHTML(sampleData())
 	if !strings.Contains(htmlOut, "10.22") {
 		t.Fatalf("RenderHTML output missing total; got:\n%s", htmlOut)
+	}
+}
+
+func pieceLineData() Data {
+	return Data{
+		TenantName:  "Farmers Market Stand",
+		Number:      7,
+		FinalizedAt: time.Date(2026, 8, 23, 14, 30, 0, 0, time.UTC),
+		Lines: []LineData{
+			{ProductName: "Eggs (dozen)", Kind: LineKindPiece, Quantity: 3, UnitPriceCents: 550, TotalPriceCents: 1650},
+		},
+	}
+}
+
+func TestRenderTextFormatsPieceLines(t *testing.T) {
+	text := RenderText(pieceLineData())
+	for _, want := range []string{"Eggs (dozen)", "3 x 5.50 each", "16.50", "Total: 16.50"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("RenderText output missing %q; got:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "kg") {
+		t.Fatalf("RenderText output for a piece line should not mention kg; got:\n%s", text)
+	}
+}
+
+func TestRenderHTMLFormatsPieceLines(t *testing.T) {
+	htmlOut := RenderHTML(pieceLineData())
+	for _, want := range []string{"Eggs (dozen)", "3 x 5.50 each", "16.50"} {
+		if !strings.Contains(htmlOut, want) {
+			t.Fatalf("RenderHTML output missing %q; got:\n%s", want, htmlOut)
+		}
 	}
 }

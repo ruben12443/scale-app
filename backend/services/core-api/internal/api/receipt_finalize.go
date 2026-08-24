@@ -152,7 +152,65 @@ func (h *ReceiptFinalizeHandlers) Email(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Emailing is the real point of no return (see domain.Receipt's doc
+	// comment): mark the receipt sent so it can never be reopened or
+	// mutated again, even though the email itself already went out and
+	// can't be un-sent if this fails.
+	if err := rc.MarkSent(time.Now().UTC(), req.To); err != nil {
+		writeError(w, http.StatusInternalServerError, "mark receipt sent: "+err.Error())
+		return
+	}
+	if err := h.Receipts.Update(r.Context(), rc); err != nil {
+		writeError(w, http.StatusInternalServerError, "store sent receipt: "+err.Error())
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Reopen puts a finalized (but not yet sent) receipt back into draft
+// status, so a mis-scanned line can be corrected. A receipt that has
+// already been sent can no longer be reopened.
+func (h *ReceiptFinalizeHandlers) Reopen(w http.ResponseWriter, r *http.Request) {
+	actor, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+
+	rc, err := h.Receipts.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "receipt not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "get receipt: "+err.Error())
+		return
+	}
+	if rc.TenantID != actor.TenantID {
+		writeError(w, http.StatusNotFound, "receipt not found")
+		return
+	}
+
+	if err := rc.Reopen(); err != nil {
+		if errors.Is(err, domain.ErrReceiptAlreadySent) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.Receipts.Update(r.Context(), rc); err != nil {
+		writeError(w, http.StatusInternalServerError, "store reopened receipt: "+err.Error())
+		return
+	}
+
+	lines, err := resolveTransactions(r, h.Transactions, rc.TransactionIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "resolve receipt lines: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, receiptResponse{Receipt: rc, Lines: lines})
 }
 
 func resolveTransactions(r *http.Request, transactions storage.TransactionRepository, ids []string) ([]*domain.Transaction, error) {
@@ -173,9 +231,15 @@ func receiptDataFrom(tenant *domain.Tenant, rc *domain.Receipt, lines []*domain.
 		data.FinalizedAt = *rc.FinalizedAt
 	}
 	for _, tx := range lines {
+		kind := receipt.LineKindWeight
+		if tx.PricingType == domain.PricingPerPiece {
+			kind = receipt.LineKindPiece
+		}
 		data.Lines = append(data.Lines, receipt.LineData{
 			ProductName:     tx.ProductName,
+			Kind:            kind,
 			WeightGrams:     tx.WeightGrams,
+			Quantity:        tx.Quantity,
 			UnitPriceCents:  tx.UnitPriceCents,
 			TotalPriceCents: tx.TotalPriceCents,
 		})

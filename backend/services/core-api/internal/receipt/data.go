@@ -9,10 +9,20 @@ import (
 	"time"
 )
 
-// LineData is one line item on a rendered receipt.
+// Line kinds, matching how the line's total was determined.
+const (
+	LineKindWeight = "weight"
+	LineKindPiece  = "piece"
+)
+
+// LineData is one line item on a rendered receipt: either weighed (Kind
+// LineKindWeight, WeightGrams set) or counted (Kind LineKindPiece, Quantity
+// set).
 type LineData struct {
 	ProductName     string
+	Kind            string // "weight" or "piece"
 	WeightGrams     int
+	Quantity        int
 	UnitPriceCents  int
 	TotalPriceCents int
 }

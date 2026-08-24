@@ -22,7 +22,7 @@ func TestProductHandlersCreateAndList(t *testing.T) {
 	h, store := newTestProductHandlers(t)
 	actor := &domain.User{ID: "admin-1", TenantID: "tenant-1", Role: domain.RoleAdmin}
 
-	body, _ := json.Marshal(productRequest{Name: "Tomatoes", PricePerKgCents: 499})
+	body, _ := json.Marshal(productRequest{Name: "Tomatoes", PricingType: domain.PricingPerKg, UnitPriceCents: 499})
 	req := requestAs(actor, http.MethodPost, "/products", body)
 	rec := httptest.NewRecorder()
 	h.Create(rec, req)
@@ -34,7 +34,7 @@ func TestProductHandlersCreateAndList(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if created.TenantID != "tenant-1" || created.PricePerKgCents != 499 {
+	if created.TenantID != "tenant-1" || created.UnitPriceCents != 499 {
 		t.Fatalf("unexpected created product: %+v", created)
 	}
 
@@ -58,8 +58,10 @@ func TestProductHandlersCreateValidation(t *testing.T) {
 	actor := &domain.User{ID: "admin-1", TenantID: "tenant-1", Role: domain.RoleAdmin}
 
 	cases := []productRequest{
-		{Name: "", PricePerKgCents: 100},
-		{Name: "Valid", PricePerKgCents: -1},
+		{Name: "", PricingType: domain.PricingPerKg, UnitPriceCents: 100},
+		{Name: "Valid", PricingType: domain.PricingPerKg, UnitPriceCents: -1},
+		{Name: "Valid", PricingType: "", UnitPriceCents: 100},
+		{Name: "Valid", PricingType: "per_kilogram", UnitPriceCents: 100},
 	}
 	for _, tc := range cases {
 		body, _ := json.Marshal(tc)
@@ -75,11 +77,11 @@ func TestProductHandlersCreateValidation(t *testing.T) {
 func TestProductHandlersUpdate(t *testing.T) {
 	h, store := newTestProductHandlers(t)
 	ctx := context.Background()
-	existing := &domain.Product{ID: "p1", TenantID: "tenant-1", Name: "Tomatoes", PricePerKgCents: 499}
+	existing := &domain.Product{ID: "p1", TenantID: "tenant-1", Name: "Tomatoes", PricingType: domain.PricingPerKg, UnitPriceCents: 499}
 	_ = store.Products().Create(ctx, existing)
 
 	actor := &domain.User{ID: "admin-1", TenantID: "tenant-1", Role: domain.RoleAdmin}
-	body, _ := json.Marshal(productRequest{Name: "Tomatoes (organic)", PricePerKgCents: 599})
+	body, _ := json.Marshal(productRequest{Name: "Tomatoes (organic)", PricingType: domain.PricingPerKg, UnitPriceCents: 599})
 	req := requestAs(actor, http.MethodPut, "/products/p1", body)
 	req.SetPathValue("id", "p1")
 	rec := httptest.NewRecorder()
@@ -92,7 +94,7 @@ func TestProductHandlersUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get product: %v", err)
 	}
-	if got.Name != "Tomatoes (organic)" || got.PricePerKgCents != 599 {
+	if got.Name != "Tomatoes (organic)" || got.UnitPriceCents != 599 {
 		t.Fatalf("unexpected stored product: %+v", got)
 	}
 }
@@ -103,7 +105,7 @@ func TestProductHandlersUpdateCrossTenantNotFound(t *testing.T) {
 	_ = store.Products().Create(ctx, &domain.Product{ID: "p1", TenantID: "tenant-2", Name: "Tomatoes"})
 
 	actor := &domain.User{ID: "admin-1", TenantID: "tenant-1", Role: domain.RoleAdmin}
-	body, _ := json.Marshal(productRequest{Name: "Hijacked", PricePerKgCents: 1})
+	body, _ := json.Marshal(productRequest{Name: "Hijacked", PricingType: domain.PricingPerKg, UnitPriceCents: 1})
 	req := requestAs(actor, http.MethodPut, "/products/p1", body)
 	req.SetPathValue("id", "p1")
 	rec := httptest.NewRecorder()

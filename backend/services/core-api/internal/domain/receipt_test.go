@@ -95,3 +95,78 @@ func TestFinalizedReceiptRejectsMutation(t *testing.T) {
 		t.Fatalf("Number = %d, want unchanged 1", r.Number)
 	}
 }
+
+func TestReceiptReopen(t *testing.T) {
+	r := newDraftReceipt()
+	_ = r.AddLine("tx-1")
+	_ = r.Finalize(7, time.Now())
+
+	if err := r.Reopen(); err != nil {
+		t.Fatalf("Reopen returned error: %v", err)
+	}
+	if r.Status != ReceiptStatusDraft {
+		t.Fatalf("Status = %q, want %q", r.Status, ReceiptStatusDraft)
+	}
+	if r.Number != 0 {
+		t.Fatalf("Number = %d, want 0 after reopen", r.Number)
+	}
+	if r.FinalizedAt != nil {
+		t.Fatalf("FinalizedAt = %v, want nil after reopen", r.FinalizedAt)
+	}
+
+	// A reopened draft accepts edits again.
+	if err := r.AddLine("tx-2"); err != nil {
+		t.Fatalf("AddLine after reopen returned error: %v", err)
+	}
+}
+
+func TestReceiptReopenRejectsDraft(t *testing.T) {
+	r := newDraftReceipt()
+	if err := r.Reopen(); !errors.Is(err, ErrReceiptNotFinalized) {
+		t.Fatalf("Reopen on draft returned %v, want %v", err, ErrReceiptNotFinalized)
+	}
+}
+
+func TestReceiptMarkSent(t *testing.T) {
+	r := newDraftReceipt()
+	_ = r.AddLine("tx-1")
+	_ = r.Finalize(1, time.Now())
+
+	now := time.Now()
+	if err := r.MarkSent(now, "customer@example.com"); err != nil {
+		t.Fatalf("MarkSent returned error: %v", err)
+	}
+	if r.Status != ReceiptStatusSent {
+		t.Fatalf("Status = %q, want %q", r.Status, ReceiptStatusSent)
+	}
+	if r.SentAt == nil || !r.SentAt.Equal(now) {
+		t.Fatalf("SentAt = %v, want %v", r.SentAt, now)
+	}
+	if r.SentTo != "customer@example.com" {
+		t.Fatalf("SentTo = %q, want %q", r.SentTo, "customer@example.com")
+	}
+}
+
+func TestSentReceiptRejectsReopenAndMutation(t *testing.T) {
+	r := newDraftReceipt()
+	_ = r.AddLine("tx-1")
+	_ = r.Finalize(1, time.Now())
+	_ = r.MarkSent(time.Now(), "customer@example.com")
+
+	if err := r.Reopen(); !errors.Is(err, ErrReceiptAlreadySent) {
+		t.Fatalf("Reopen on sent receipt returned %v, want %v", err, ErrReceiptAlreadySent)
+	}
+	if err := r.MarkSent(time.Now(), "again@example.com"); !errors.Is(err, ErrReceiptAlreadySent) {
+		t.Fatalf("double MarkSent returned %v, want %v", err, ErrReceiptAlreadySent)
+	}
+	if err := r.AddLine("tx-2"); !errors.Is(err, ErrReceiptFinalized) {
+		t.Fatalf("AddLine on sent receipt returned %v, want %v", err, ErrReceiptFinalized)
+	}
+}
+
+func TestMarkSentRejectsDraft(t *testing.T) {
+	r := newDraftReceipt()
+	if err := r.MarkSent(time.Now(), "customer@example.com"); !errors.Is(err, ErrReceiptNotFinalized) {
+		t.Fatalf("MarkSent on draft returned %v, want %v", err, ErrReceiptNotFinalized)
+	}
+}

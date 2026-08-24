@@ -25,7 +25,7 @@ func newTestTransactionHandlers(t *testing.T) (*TransactionHandlers, storage.Sto
 func TestTransactionHandlersCreateOpensAndAppendsToDraftReceipt(t *testing.T) {
 	h, store := newTestTransactionHandlers(t)
 	ctx := context.Background()
-	_ = store.Products().Create(ctx, &domain.Product{ID: "p1", TenantID: "t1", Name: "Tomatoes", PricePerKgCents: 499})
+	_ = store.Products().Create(ctx, &domain.Product{ID: "p1", TenantID: "t1", Name: "Tomatoes", PricingType: domain.PricingPerKg, UnitPriceCents: 499})
 
 	actor := &domain.User{ID: "vendor-1", TenantID: "t1", Role: domain.RoleVendor}
 	body, _ := json.Marshal(createTransactionRequest{
@@ -100,6 +100,76 @@ func TestTransactionHandlersCreateRejectsCrossTenantProduct(t *testing.T) {
 
 	actor := &domain.User{ID: "vendor-1", TenantID: "t1", Role: domain.RoleVendor}
 	body, _ := json.Marshal(createTransactionRequest{ProductID: "p1", ScaleID: "scale-1"})
+	req := requestAs(actor, http.MethodPost, "/transactions", body)
+	rec := httptest.NewRecorder()
+	h.Create(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestTransactionHandlersCreatePerPieceLine(t *testing.T) {
+	h, store := newTestTransactionHandlers(t)
+	ctx := context.Background()
+	_ = store.Products().Create(ctx, &domain.Product{ID: "p1", TenantID: "t1", Name: "Eggs (dozen)", PricingType: domain.PricingPerPiece, UnitPriceCents: 550})
+
+	actor := &domain.User{ID: "vendor-1", TenantID: "t1", Role: domain.RoleVendor}
+	body, _ := json.Marshal(createTransactionRequest{
+		ProductID: "p1", Quantity: 3, UnitPriceCents: 550, TotalPriceCents: 1650,
+	})
+	req := requestAs(actor, http.MethodPost, "/transactions", body)
+	rec := httptest.NewRecorder()
+	h.Create(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	var resp createTransactionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Transaction.Quantity != 3 || resp.Transaction.TotalPriceCents != 1650 || resp.Transaction.WeightGrams != 0 || resp.Transaction.ScaleID != "" {
+		t.Fatalf("unexpected transaction: %+v", resp.Transaction)
+	}
+}
+
+func TestTransactionHandlersCreatePerPieceRejectsWeightFields(t *testing.T) {
+	h, store := newTestTransactionHandlers(t)
+	_ = store.Products().Create(context.Background(), &domain.Product{ID: "p1", TenantID: "t1", Name: "Eggs (dozen)", PricingType: domain.PricingPerPiece, UnitPriceCents: 550})
+
+	actor := &domain.User{ID: "vendor-1", TenantID: "t1", Role: domain.RoleVendor}
+	body, _ := json.Marshal(createTransactionRequest{ProductID: "p1", Quantity: 3, ScaleID: "scale-1"})
+	req := requestAs(actor, http.MethodPost, "/transactions", body)
+	rec := httptest.NewRecorder()
+	h.Create(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestTransactionHandlersCreatePerPieceRejectsMissingQuantity(t *testing.T) {
+	h, store := newTestTransactionHandlers(t)
+	_ = store.Products().Create(context.Background(), &domain.Product{ID: "p1", TenantID: "t1", Name: "Eggs (dozen)", PricingType: domain.PricingPerPiece, UnitPriceCents: 550})
+
+	actor := &domain.User{ID: "vendor-1", TenantID: "t1", Role: domain.RoleVendor}
+	body, _ := json.Marshal(createTransactionRequest{ProductID: "p1"})
+	req := requestAs(actor, http.MethodPost, "/transactions", body)
+	rec := httptest.NewRecorder()
+	h.Create(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestTransactionHandlersCreatePerKgRejectsQuantity(t *testing.T) {
+	h, store := newTestTransactionHandlers(t)
+	_ = store.Products().Create(context.Background(), &domain.Product{ID: "p1", TenantID: "t1", Name: "Tomatoes", PricingType: domain.PricingPerKg, UnitPriceCents: 499})
+
+	actor := &domain.User{ID: "vendor-1", TenantID: "t1", Role: domain.RoleVendor}
+	body, _ := json.Marshal(createTransactionRequest{ProductID: "p1", ScaleID: "scale-1", WeightGrams: 1000, Quantity: 2})
 	req := requestAs(actor, http.MethodPost, "/transactions", body)
 	rec := httptest.NewRecorder()
 	h.Create(rec, req)

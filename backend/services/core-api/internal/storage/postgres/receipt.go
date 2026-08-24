@@ -19,9 +19,9 @@ func (r *receiptRepo) Create(ctx context.Context, rc *domain.Receipt) error {
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op if already committed
 
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO receipts (id, tenant_id, user_id, status, number, created_at, finalized_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		rc.ID, rc.TenantID, rc.UserID, rc.Status, nullableNumber(rc.Number), rc.CreatedAt, rc.FinalizedAt); err != nil {
+		`INSERT INTO receipts (id, tenant_id, user_id, status, number, created_at, finalized_at, sent_at, sent_to)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		rc.ID, rc.TenantID, rc.UserID, rc.Status, nullableNumber(rc.Number), rc.CreatedAt, rc.FinalizedAt, rc.SentAt, nullableString(rc.SentTo)); err != nil {
 		return fmt.Errorf("postgres: create receipt: %w", err)
 	}
 
@@ -38,7 +38,7 @@ func (r *receiptRepo) Create(ctx context.Context, rc *domain.Receipt) error {
 func (r *receiptRepo) Get(ctx context.Context, id string) (*domain.Receipt, error) {
 	s := (*Store)(r)
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, user_id, status, number, created_at, finalized_at
+		`SELECT id, tenant_id, user_id, status, number, created_at, finalized_at, sent_at, sent_to
 		 FROM receipts WHERE id = $1`, id)
 	rc, err := scanReceipt(row)
 	if err != nil {
@@ -62,8 +62,8 @@ func (r *receiptRepo) Update(ctx context.Context, rc *domain.Receipt) error {
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op if already committed
 
 	tag, err := tx.Exec(ctx,
-		`UPDATE receipts SET status = $2, number = $3, finalized_at = $4 WHERE id = $1`,
-		rc.ID, rc.Status, nullableNumber(rc.Number), rc.FinalizedAt)
+		`UPDATE receipts SET status = $2, number = $3, finalized_at = $4, sent_at = $5, sent_to = $6 WHERE id = $1`,
+		rc.ID, rc.Status, nullableNumber(rc.Number), rc.FinalizedAt, rc.SentAt, nullableString(rc.SentTo))
 	if err != nil {
 		return fmt.Errorf("postgres: update receipt: %w", err)
 	}
@@ -87,7 +87,7 @@ func (r *receiptRepo) Update(ctx context.Context, rc *domain.Receipt) error {
 func (r *receiptRepo) ListOpenByUser(ctx context.Context, userID string) ([]*domain.Receipt, error) {
 	s := (*Store)(r)
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, tenant_id, user_id, status, number, created_at, finalized_at
+		`SELECT id, tenant_id, user_id, status, number, created_at, finalized_at, sent_at, sent_to
 		 FROM receipts WHERE user_id = $1 AND status = $2 ORDER BY created_at`,
 		userID, domain.ReceiptStatusDraft)
 	if err != nil {
@@ -174,12 +174,16 @@ func selectReceiptLines(ctx context.Context, q pgxQuerier, receiptID string) ([]
 func scanReceipt(row rowScanner) (*domain.Receipt, error) {
 	var rc domain.Receipt
 	var number *int
-	err := row.Scan(&rc.ID, &rc.TenantID, &rc.UserID, &rc.Status, &number, &rc.CreatedAt, &rc.FinalizedAt)
+	var sentTo *string
+	err := row.Scan(&rc.ID, &rc.TenantID, &rc.UserID, &rc.Status, &number, &rc.CreatedAt, &rc.FinalizedAt, &rc.SentAt, &sentTo)
 	if err != nil {
 		return nil, noRowsToNotFound(fmt.Errorf("postgres: get receipt: %w", err))
 	}
 	if number != nil {
 		rc.Number = *number
+	}
+	if sentTo != nil {
+		rc.SentTo = *sentTo
 	}
 	return &rc, nil
 }
@@ -190,4 +194,12 @@ func nullableNumber(n int) any {
 		return nil
 	}
 	return n
+}
+
+// nullableString maps an empty string (not yet sent) to SQL NULL.
+func nullableString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

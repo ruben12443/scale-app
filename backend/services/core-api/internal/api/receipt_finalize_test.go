@@ -151,6 +151,122 @@ func TestEmailSendsFinalizedReceipt(t *testing.T) {
 	if len(sender.Sent) != 1 || sender.Sent[0].To != "customer@example.com" {
 		t.Fatalf("Sent = %+v, want one email to customer@example.com", sender.Sent)
 	}
+
+	stored, err := store.Receipts().Get(ctx, "r1")
+	if err != nil {
+		t.Fatalf("get receipt: %v", err)
+	}
+	if stored.Status != domain.ReceiptStatusSent {
+		t.Fatalf("stored receipt status = %q, want %q", stored.Status, domain.ReceiptStatusSent)
+	}
+	if stored.SentTo != "customer@example.com" {
+		t.Fatalf("SentTo = %q, want %q", stored.SentTo, "customer@example.com")
+	}
+}
+
+func TestEmailRejectsAlreadySentReceipt(t *testing.T) {
+	h, store, _ := newTestFinalizeHandlers(t)
+	rc := seedDraftReceiptWithOneLine(t, store, "t1", "vendor-1")
+	ctx := context.Background()
+	_ = rc.Finalize(1, time.Now())
+	_ = rc.MarkSent(time.Now(), "first@example.com")
+	_ = store.Receipts().Update(ctx, rc)
+
+	actor := &domain.User{ID: "vendor-1", TenantID: "t1", Role: domain.RoleVendor}
+	body := []byte(`{"to":"second@example.com"}`)
+	req := requestAs(actor, http.MethodPost, "/receipts/r1/email", body)
+	req.SetPathValue("id", "r1")
+	rec := httptest.NewRecorder()
+	h.Email(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestReopenSuccess(t *testing.T) {
+	h, store, _ := newTestFinalizeHandlers(t)
+	rc := seedDraftReceiptWithOneLine(t, store, "t1", "vendor-1")
+	ctx := context.Background()
+	_ = rc.Finalize(1, time.Now())
+	_ = store.Receipts().Update(ctx, rc)
+
+	actor := &domain.User{ID: "vendor-1", TenantID: "t1", Role: domain.RoleVendor}
+	req := requestAs(actor, http.MethodPost, "/receipts/r1/reopen", nil)
+	req.SetPathValue("id", "r1")
+	rec := httptest.NewRecorder()
+	h.Reopen(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp receiptResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Status != domain.ReceiptStatusDraft || resp.Number != 0 {
+		t.Fatalf("unexpected reopened receipt: status=%q number=%d", resp.Status, resp.Number)
+	}
+
+	stored, err := store.Receipts().Get(ctx, "r1")
+	if err != nil {
+		t.Fatalf("get receipt: %v", err)
+	}
+	if stored.Status != domain.ReceiptStatusDraft {
+		t.Fatalf("stored receipt status = %q, want draft", stored.Status)
+	}
+}
+
+func TestReopenRejectsDraftReceipt(t *testing.T) {
+	h, store, _ := newTestFinalizeHandlers(t)
+	seedDraftReceiptWithOneLine(t, store, "t1", "vendor-1")
+
+	actor := &domain.User{ID: "vendor-1", TenantID: "t1", Role: domain.RoleVendor}
+	req := requestAs(actor, http.MethodPost, "/receipts/r1/reopen", nil)
+	req.SetPathValue("id", "r1")
+	rec := httptest.NewRecorder()
+	h.Reopen(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestReopenRejectsSentReceipt(t *testing.T) {
+	h, store, _ := newTestFinalizeHandlers(t)
+	rc := seedDraftReceiptWithOneLine(t, store, "t1", "vendor-1")
+	ctx := context.Background()
+	_ = rc.Finalize(1, time.Now())
+	_ = rc.MarkSent(time.Now(), "customer@example.com")
+	_ = store.Receipts().Update(ctx, rc)
+
+	actor := &domain.User{ID: "vendor-1", TenantID: "t1", Role: domain.RoleVendor}
+	req := requestAs(actor, http.MethodPost, "/receipts/r1/reopen", nil)
+	req.SetPathValue("id", "r1")
+	rec := httptest.NewRecorder()
+	h.Reopen(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+}
+
+func TestReopenRejectsCrossTenantReceipt(t *testing.T) {
+	h, store, _ := newTestFinalizeHandlers(t)
+	rc := seedDraftReceiptWithOneLine(t, store, "other-tenant", "vendor-2")
+	ctx := context.Background()
+	_ = rc.Finalize(1, time.Now())
+	_ = store.Receipts().Update(ctx, rc)
+
+	actor := &domain.User{ID: "vendor-1", TenantID: "t1", Role: domain.RoleVendor}
+	req := requestAs(actor, http.MethodPost, "/receipts/r1/reopen", nil)
+	req.SetPathValue("id", "r1")
+	rec := httptest.NewRecorder()
+	h.Reopen(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
 }
 
 func TestEmailRejectsDraftReceipt(t *testing.T) {

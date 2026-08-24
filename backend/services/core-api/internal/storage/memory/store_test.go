@@ -88,12 +88,12 @@ func TestProductCreateUpdateDelete(t *testing.T) {
 	s := New()
 	ctx := context.Background()
 
-	p := &domain.Product{ID: "p1", TenantID: "t1", Name: "Tomatoes", PricePerKgCents: 499}
+	p := &domain.Product{ID: "p1", TenantID: "t1", Name: "Tomatoes", PricingType: domain.PricingPerKg, UnitPriceCents: 499}
 	if err := s.Products().Create(ctx, p); err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
 
-	p.PricePerKgCents = 549
+	p.UnitPriceCents = 549
 	if err := s.Products().Update(ctx, p); err != nil {
 		t.Fatalf("Update returned error: %v", err)
 	}
@@ -101,8 +101,8 @@ func TestProductCreateUpdateDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
-	if got.PricePerKgCents != 549 {
-		t.Fatalf("PricePerKgCents = %d, want 549", got.PricePerKgCents)
+	if got.UnitPriceCents != 549 {
+		t.Fatalf("UnitPriceCents = %d, want 549", got.UnitPriceCents)
 	}
 
 	if err := s.Products().Delete(ctx, "p1"); err != nil {
