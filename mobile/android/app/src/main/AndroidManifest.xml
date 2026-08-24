@@ -2,7 +2,12 @@
     <application
         android:label="scale_app"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+        <!-- Local-dev only: the backend (core-api, scale-gateway, Zitadel)
+             runs over plain HTTP with no TLS. Android blocks cleartext
+             traffic by default since API 28. Remove this once pointing at
+             a real HTTPS deployment. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
