@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: docker.io/library/postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -14,7 +14,7 @@ services:
       retries: 10
 
   zitadel-db:
-    image: postgres:16-alpine
+    image: docker.io/library/postgres:16-alpine
     environment:
       POSTGRES_USER: zitadel
       POSTGRES_PASSWORD: ${ZITADEL_DB_PASSWORD}
@@ -45,7 +45,7 @@ services:
         condition: service_healthy
 
   mailpit:
-    image: axllent/mailpit:latest
+    image: docker.io/axllent/mailpit:latest
     ports:
       - "8025:8025" # web UI, for viewing sent receipt emails during dev
       - "1025:1025" # SMTP
