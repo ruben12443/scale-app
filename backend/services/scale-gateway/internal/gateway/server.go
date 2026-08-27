@@ -27,12 +27,40 @@ type scaleState struct {
 	mu        sync.Mutex
 	connected bool
 	lastError string
+
+	// holderID/holderName/claimExpiresAt track which vendor currently has this
+	// scale claimed, so two vendors can never be sending prices to the same
+	// physical scale at once. holderID empty (or claimExpiresAt in the past)
+	// means unclaimed.
+	holderID       string
+	holderName     string
+	claimExpiresAt time.Time
+}
+
+// claimTTL bounds how long a scale claim survives without being renewed by
+// its holder (a claim, or a transaction from the same holder_id). It's a
+// server-side backstop, deliberately longer than the mobile app's own 7s
+// on-screen-inactivity timeout: it only matters if a client vanishes without
+// releasing (crash, lost network, the app failing to notice a locked
+// screen).
+const claimTTL = 20 * time.Second
+
+// activeHolderLocked returns the current holder id and whether the claim is
+// still active as of now. Callers must hold st.mu.
+func (st *scaleState) activeHolderLocked(now time.Time) (holderID string, active bool) {
+	if st.holderID == "" || now.After(st.claimExpiresAt) {
+		return "", false
+	}
+	return st.holderID, true
 }
 
 // Server exposes configured scales over HTTP.
 type Server struct {
 	mux    *http.ServeMux
 	scales map[string]*scaleState
+
+	// now is overridden in tests to make claim expiry deterministic.
+	now func() time.Time
 }
 
 // NewServer builds a Server for the given scale entries. Drivers are not
@@ -41,6 +69,7 @@ func NewServer(entries []ScaleEntry) *Server {
 	s := &Server{
 		mux:    http.NewServeMux(),
 		scales: make(map[string]*scaleState, len(entries)),
+		now:    time.Now,
 	}
 	for _, e := range entries {
 		s.scales[e.ID] = &scaleState{id: e.ID, kind: e.Kind, drv: e.Driver}
@@ -52,6 +81,8 @@ func NewServer(entries []ScaleEntry) *Server {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /scales", s.handleListScales)
 	s.mux.HandleFunc("POST /scales/{id}/transactions", s.handleSendTransaction)
+	s.mux.HandleFunc("POST /scales/{id}/claim", s.handleClaimScale)
+	s.mux.HandleFunc("POST /scales/{id}/release", s.handleReleaseScale)
 }
 
 // ServeHTTP implements http.Handler.
@@ -83,29 +114,150 @@ func (st *scaleState) connect(ctx context.Context) {
 }
 
 type scaleStatus struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Connected bool   `json:"connected"`
-	LastError string `json:"last_error,omitempty"`
+	ID         string `json:"id"`
+	Kind       string `json:"kind"`
+	Connected  bool   `json:"connected"`
+	LastError  string `json:"last_error,omitempty"`
+	HeldByID   string `json:"held_by_id,omitempty"`
+	HeldByName string `json:"held_by_name,omitempty"`
 }
 
 func (s *Server) handleListScales(w http.ResponseWriter, r *http.Request) {
+	now := s.now()
 	statuses := make([]scaleStatus, 0, len(s.scales))
 	for _, st := range s.scales {
 		st.mu.Lock()
-		statuses = append(statuses, scaleStatus{
+		holder, active := st.activeHolderLocked(now)
+		status := scaleStatus{
 			ID:        st.id,
 			Kind:      string(st.kind),
 			Connected: st.connected,
 			LastError: st.lastError,
-		})
+		}
+		if active {
+			status.HeldByID = holder
+			status.HeldByName = st.holderName
+		}
 		st.mu.Unlock()
+		statuses = append(statuses, status)
 	}
 	writeJSON(w, http.StatusOK, statuses)
 }
 
+type claimRequest struct {
+	HolderID   string `json:"holder_id"`
+	HolderName string `json:"holder_name,omitempty"`
+}
+
+type claimResponse struct {
+	ScaleID    string    `json:"scale_id"`
+	HolderID   string    `json:"holder_id"`
+	HolderName string    `json:"holder_name,omitempty"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
+type claimConflictResponse struct {
+	Error      string `json:"error"`
+	HeldByID   string `json:"held_by_id"`
+	HeldByName string `json:"held_by_name,omitempty"`
+}
+
+// handleClaimScale grants the requesting vendor exclusive use of a scale, so
+// a second vendor's app can't also start weighing against it. Re-claiming
+// with the same holder_id (a renewal, e.g. from the mobile app's periodic
+// keep-alive) always succeeds and extends the claim.
+func (s *Server) handleClaimScale(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	st, ok := s.scales[id]
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown scale id")
+		return
+	}
+
+	var req claimRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+	if req.HolderID == "" {
+		writeError(w, http.StatusBadRequest, "holder_id is required")
+		return
+	}
+
+	now := s.now()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	if holder, active := st.activeHolderLocked(now); active && holder != req.HolderID {
+		display := st.holderName
+		if display == "" {
+			display = holder
+		}
+		writeJSON(w, http.StatusConflict, claimConflictResponse{
+			Error:      "scale is in use by another vendor",
+			HeldByID:   holder,
+			HeldByName: display,
+		})
+		return
+	}
+
+	st.holderID = req.HolderID
+	st.holderName = req.HolderName
+	st.claimExpiresAt = now.Add(claimTTL)
+
+	writeJSON(w, http.StatusOK, claimResponse{
+		ScaleID:    id,
+		HolderID:   st.holderID,
+		HolderName: st.holderName,
+		ExpiresAt:  st.claimExpiresAt,
+	})
+}
+
+type releaseRequest struct {
+	HolderID string `json:"holder_id"`
+}
+
+type releaseResponse struct {
+	Released bool `json:"released"`
+}
+
+// handleReleaseScale gives up a claim. It's idempotent and never errors on a
+// mismatched holder: releasing is only ever a safety/cleanup action (product
+// added, inactivity timeout, screen lock, navigating away), so a stale or
+// already-lost claim is a silent no-op rather than a failure the caller has
+// to handle.
+func (s *Server) handleReleaseScale(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	st, ok := s.scales[id]
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown scale id")
+		return
+	}
+
+	var req releaseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	now := s.now()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	_, active := st.activeHolderLocked(now)
+	released := !active || st.holderID == req.HolderID
+	if released {
+		st.holderID = ""
+		st.holderName = ""
+		st.claimExpiresAt = time.Time{}
+	}
+
+	writeJSON(w, http.StatusOK, releaseResponse{Released: released})
+}
+
 type sendTransactionRequest struct {
-	PricePerKgCents int `json:"price_per_kg_cents"`
+	PricePerKgCents int    `json:"price_per_kg_cents"`
+	HolderID        string `json:"holder_id"`
 }
 
 type sendTransactionResponse struct {
@@ -136,6 +288,26 @@ func (s *Server) handleSendTransaction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "price_per_kg_cents must not be negative")
 		return
 	}
+	if req.HolderID == "" {
+		writeError(w, http.StatusBadRequest, "holder_id is required")
+		return
+	}
+
+	// A transaction only proceeds for whoever currently holds the scale's
+	// claim (see handleClaimScale) — this is the actual enforcement point
+	// that keeps two vendors from weighing on the same scale at once. It also
+	// renews the claim, so an actively-selling vendor's claim never expires
+	// mid-sale purely from the claimTTL backstop.
+	now := s.now()
+	st.mu.Lock()
+	if holder, active := st.activeHolderLocked(now); active && holder != req.HolderID {
+		st.mu.Unlock()
+		writeError(w, http.StatusConflict, "scale is claimed by another vendor")
+		return
+	}
+	st.holderID = req.HolderID
+	st.claimExpiresAt = now.Add(claimTTL)
+	st.mu.Unlock()
 
 	// Only one transaction may be in flight against a given scale at a time.
 	st.txMu.Lock()

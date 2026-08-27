@@ -106,10 +106,46 @@ The service reads a JSON config file (default `config.json`, override with
 ## HTTP API
 
 - `GET /scales` — list configured scales with their connection status.
-- `POST /scales/{id}/transactions` — body `{"price_per_kg_cents": 1499}`,
-  returns `{"scale_id", "status_code", "weight_grams", "price_cents"}` on
-  success. Transactions against a single scale are serialized: only one can
-  be in flight at a time.
+  `held_by_id`/`held_by_name` are present while a vendor holds an active
+  claim (see below).
+- `POST /scales/{id}/transactions` — body
+  `{"price_per_kg_cents": 1499, "holder_id": "vendor-1"}`, returns
+  `{"scale_id", "status_code", "weight_grams", "price_cents"}` on success.
+  Transactions against a single scale are serialized: only one can be in
+  flight at a time. `holder_id` must match the scale's current claim holder
+  (or the scale must be unclaimed) — a mismatch returns 409.
+- `POST /scales/{id}/claim` — body
+  `{"holder_id": "vendor-1", "holder_name": "Alice"}` (`holder_name`
+  optional, used only for display). Grants exclusive use of the scale to
+  `holder_id`; returns 409 with `{"error", "held_by_id", "held_by_name"}` if
+  another vendor already holds it. Re-claiming with the same `holder_id`
+  always succeeds and renews the claim.
+- `POST /scales/{id}/release` — body `{"holder_id": "vendor-1"}`. Gives up
+  `holder_id`'s claim, if it still holds one. Always returns
+  `{"released": bool}` — releasing is a best-effort cleanup action, so a
+  stale or already-lost claim is a silent no-op rather than an error.
+
+### Scale claims: one vendor per scale at a time
+
+Two vendors' phones can reach the same scale-gateway (it's shared across
+one stall's local network), so nothing before this stopped two of them from
+sending prices to the same physical scale at once. A claim is a
+lightweight, in-memory reservation — held per scale, keyed by an opaque
+`holder_id` the caller chooses (the mobile app uses the vendor's core-api
+user id) — that makes that exclusive.
+
+A claim expires on its own after `claimTTL` (20s) if never renewed, so a
+crashed app or a phone that drops off the network doesn't permanently
+strand a scale — see the mobile app's README for how it renews claims
+while in active use and releases them proactively (added to receipt,
+on-screen inactivity, the screen locking) well within that window. The
+20s server-side TTL is deliberately just a backstop, not the primary
+release mechanism.
+
+This is a courtesy mechanism, not authentication: like the rest of this
+service, it trusts callers on the local network to send a truthful
+`holder_id`. It stops two vendors from *accidentally* colliding on one
+scale; it isn't a security boundary.
 
 This is a first-draft API surface designed to unblock the mobile app; it
 will evolve once the exact mobile app flows are finalized.
