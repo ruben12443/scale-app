@@ -10,7 +10,7 @@ import (
 )
 
 // Middleware verifies the bearer token on incoming requests, looks up the
-// corresponding local User by its Zitadel subject, and attaches it to the
+// corresponding local User by its Rauthy subject, and attaches it to the
 // request context for downstream handlers (see UserFromContext).
 func Middleware(verifier TokenVerifier, users storage.UserRepository) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -27,7 +27,7 @@ func Middleware(verifier TokenVerifier, users storage.UserRepository) func(http.
 				return
 			}
 
-			user, err := users.GetByZitadelSubject(r.Context(), subject)
+			user, err := users.GetByRauthySubject(r.Context(), subject)
 			if err != nil {
 				if errors.Is(err, storage.ErrNotFound) {
 					http.Error(w, "no local account for this identity", http.StatusForbidden)

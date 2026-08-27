@@ -22,11 +22,11 @@ class ScaleApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final authService = AuthService(
       AuthConfig(
-        issuer: AppConfig.zitadelIssuer,
-        clientId: AppConfig.zitadelClientId,
-        redirectUri: AppConfig.zitadelRedirectUri,
+        issuer: AppConfig.rauthyIssuer,
+        clientId: AppConfig.rauthyClientId,
+        redirectUri: AppConfig.rauthyRedirectUri,
         postLogoutRedirectUri: kIsWeb
-            ? AppConfig.zitadelWebPostLogoutRedirectUri
+            ? AppConfig.rauthyWebPostLogoutRedirectUri
             : null,
       ),
     );

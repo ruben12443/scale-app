@@ -102,12 +102,12 @@ func (r *userRepo) Get(ctx context.Context, id string) (*domain.User, error) {
 	return &u, nil
 }
 
-func (r *userRepo) GetByZitadelSubject(ctx context.Context, subject string) (*domain.User, error) {
+func (r *userRepo) GetByRauthySubject(ctx context.Context, subject string) (*domain.User, error) {
 	s := (*Store)(r)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, u := range s.users {
-		if u.ZitadelSubjectID == subject {
+		if u.RauthySubjectID == subject {
 			u := u
 			return &u, nil
 		}

@@ -79,7 +79,7 @@ func TestPostgresReceiptLineLifecycle(t *testing.T) {
 	if err := s.Tenants().Create(ctx, tenant); err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
-	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, ZitadelSubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, RauthySubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
 	if err := s.Users().Create(ctx, user); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestPostgresPerPieceTransactionRoundTrip(t *testing.T) {
 	if err := s.Tenants().Create(ctx, tenant); err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
-	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, ZitadelSubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, RauthySubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
 	if err := s.Users().Create(ctx, user); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestPostgresReceiptReopenAndSentRoundTrip(t *testing.T) {
 	if err := s.Tenants().Create(ctx, tenant); err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
-	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, ZitadelSubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, RauthySubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
 	if err := s.Users().Create(ctx, user); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestPostgresPaymentRoundTrip(t *testing.T) {
 	if err := s.Tenants().Create(ctx, tenant); err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
-	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, ZitadelSubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	user := &domain.User{ID: "u-" + t.Name(), TenantID: tenant.ID, RauthySubjectID: "sub-" + t.Name(), Role: domain.RoleVendor, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
 	if err := s.Users().Create(ctx, user); err != nil {
 		t.Fatalf("create user: %v", err)
 	}

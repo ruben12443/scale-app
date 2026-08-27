@@ -22,7 +22,7 @@ void main() {
               {
                 'id': 'u1',
                 'tenant_id': 't1',
-                'zitadel_subject_id': 'sub-1',
+                'rauthy_subject_id': 'sub-1',
                 'display_name': 'Jane',
                 'email': 'jane@example.com',
                 'role': 'vendor',
@@ -53,7 +53,7 @@ void main() {
             jsonEncode({
               'id': 'u1',
               'tenant_id': 't1',
-              'zitadel_subject_id': 'sub-1',
+              'rauthy_subject_id': 'sub-1',
               'display_name': 'Jane',
               'email': 'jane@example.com',
               'role': 'vendor',
@@ -262,7 +262,7 @@ void main() {
             jsonEncode({
               'id': 'u1',
               'tenant_id': 't1',
-              'zitadel_subject_id': 'sub-1',
+              'rauthy_subject_id': 'sub-1',
               'display_name': 'Jane',
               'email': 'jane@example.com',
               'role': 'admin',

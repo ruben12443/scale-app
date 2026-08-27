@@ -1,6 +1,6 @@
 // Command core-api runs the cloud backend: tenant/user management, the
 // product/price catalog, transactions and draft/finalized receipts, backed
-// by Postgres and Zitadel.
+// by Postgres and Rauthy.
 package main
 
 import (
@@ -21,16 +21,16 @@ func main() {
 
 	dsn := requireEnv("DATABASE_URL")
 	listenAddr := getEnv("LISTEN_ADDR", ":8081")
-	issuerURL := requireEnv("ZITADEL_ISSUER_URL")
-	// ZITADEL_DISCOVERY_URL defaults to issuerURL: they're only ever
-	// different when core-api reaches Zitadel over an internal address
-	// (e.g. a Docker Compose service name) that differs from Zitadel's
+	issuerURL := requireEnv("RAUTHY_ISSUER_URL")
+	// RAUTHY_DISCOVERY_URL defaults to issuerURL: they're only ever
+	// different when core-api reaches Rauthy over an internal address
+	// (e.g. a Docker Compose service name) that differs from Rauthy's
 	// externally-configured issuer (e.g. localhost or a LAN IP for phone
-	// testing) — see NewZitadelVerifier's doc comment.
-	discoveryURL := getEnv("ZITADEL_DISCOVERY_URL", issuerURL)
-	audience := requireEnv("ZITADEL_AUDIENCE")
-	zitadelBaseURL := requireEnv("ZITADEL_BASE_URL")
-	zitadelServiceToken := requireEnv("ZITADEL_SERVICE_TOKEN")
+	// testing) — see NewRauthyVerifier's doc comment.
+	discoveryURL := getEnv("RAUTHY_DISCOVERY_URL", issuerURL)
+	audience := requireEnv("RAUTHY_AUDIENCE")
+	rauthyBaseURL := requireEnv("RAUTHY_BASE_URL")
+	rauthyAPIKey := requireEnv("RAUTHY_API_KEY")
 	smtpAddr := requireEnv("SMTP_ADDR")
 	smtpFrom := requireEnv("SMTP_FROM")
 	stripeSecretKey := requireEnv("STRIPE_SECRET_KEY")
@@ -45,11 +45,11 @@ func main() {
 		log.Fatalf("core-api: %v", err)
 	}
 
-	verifier, err := auth.NewZitadelVerifier(ctx, discoveryURL, issuerURL, audience)
+	verifier, err := auth.NewRauthyVerifier(ctx, discoveryURL, issuerURL, audience)
 	if err != nil {
 		log.Fatalf("core-api: %v", err)
 	}
-	adminClient := &auth.ZitadelAdminClient{BaseURL: zitadelBaseURL, BearerToken: zitadelServiceToken}
+	adminClient := &auth.RauthyAdminClient{BaseURL: rauthyBaseURL, APIKey: rauthyAPIKey}
 	emailSender := &receipt.SMTPSender{Addr: smtpAddr, From: smtpFrom}
 	processor := payment.NewStripeProcessor(stripeSecretKey)
 

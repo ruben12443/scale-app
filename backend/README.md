@@ -11,7 +11,7 @@ Go backend for scale-app, a monorepo. This is a single Go module
   transaction. Runs on-site, on the scale's local network.
 - [`services/core-api`](services/core-api/README.md) — the cloud backend:
   tenants/users, product/price catalog, transactions, draft/finalized
-  receipts, Zitadel auth, Stripe payments.
+  receipts, Rauthy auth, Stripe payments.
 
 Each service has its own `Dockerfile` (build context is this `backend/`
 directory, since both share one Go module) — see the root

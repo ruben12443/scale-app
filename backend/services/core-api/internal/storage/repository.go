@@ -23,7 +23,7 @@ type TenantRepository interface {
 type UserRepository interface {
 	Create(ctx context.Context, u *domain.User) error
 	Get(ctx context.Context, id string) (*domain.User, error)
-	GetByZitadelSubject(ctx context.Context, subject string) (*domain.User, error)
+	GetByRauthySubject(ctx context.Context, subject string) (*domain.User, error)
 	ListByTenant(ctx context.Context, tenantID string) ([]*domain.User, error)
 	Delete(ctx context.Context, id string) error
 }

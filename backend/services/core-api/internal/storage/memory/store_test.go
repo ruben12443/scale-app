@@ -43,18 +43,18 @@ func TestTenantGetNotFound(t *testing.T) {
 	}
 }
 
-func TestUserGetByZitadelSubjectAndDelete(t *testing.T) {
+func TestUserGetByRauthySubjectAndDelete(t *testing.T) {
 	s := New()
 	ctx := context.Background()
 
-	u := &domain.User{ID: "u1", TenantID: "t1", ZitadelSubjectID: "zit-sub-1", Role: domain.RoleVendor}
+	u := &domain.User{ID: "u1", TenantID: "t1", RauthySubjectID: "rauthy-sub-1", Role: domain.RoleVendor}
 	if err := s.Users().Create(ctx, u); err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
 
-	got, err := s.Users().GetByZitadelSubject(ctx, "zit-sub-1")
+	got, err := s.Users().GetByRauthySubject(ctx, "rauthy-sub-1")
 	if err != nil {
-		t.Fatalf("GetByZitadelSubject returned error: %v", err)
+		t.Fatalf("GetByRauthySubject returned error: %v", err)
 	}
 	if got.ID != "u1" {
 		t.Fatalf("ID = %q, want %q", got.ID, "u1")

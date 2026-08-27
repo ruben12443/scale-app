@@ -16,11 +16,11 @@ data coming from `scale-gateway`.
 - `internal/storage` — the `storage.Store` persistence contract, with a
   `memory` implementation (fast unit tests) and a `postgres` implementation
   (pgx, pure Go, embedded schema in `internal/storage/postgres/schema.sql`).
-- `internal/auth` — Zitadel integration. `ZitadelVerifier` verifies OIDC/JWT
-  access tokens; `ZitadelAdminClient` creates/deletes vendor users via
-  Zitadel's v2 User API. **Tenant scoping and role authorization come from
+- `internal/auth` — Rauthy integration. `RauthyVerifier` verifies OIDC/JWT
+  access tokens; `RauthyAdminClient` creates/deletes vendor users via
+  Rauthy's admin User API. **Tenant scoping and role authorization come from
   core-api's own `User` record** (looked up by the token's subject), not
-  from Zitadel claims — see the package doc comment for why.
+  from Rauthy claims — see the package doc comment for why.
 - `internal/receipt` — renders a finalized receipt to text/HTML and sends it
   by email (`SMTPSender`, stdlib `net/smtp`). No printer hardware
   integration; `RenderText` produces the content a print pathway would send
@@ -34,8 +34,10 @@ data coming from `scale-gateway`.
 
 ## Data model notes
 
-- A `Tenant`'s ID doubles as its Zitadel organization ID (one tenant = one
-  Zitadel org), so provisioning a vendor user needs no separate mapping.
+- Tenant scoping is entirely local to core-api's own database — Rauthy has
+  no organization/multi-tenancy concept of its own, so a `Tenant`'s ID has
+  no corresponding concept on the Rauthy side (unlike Zitadel, which this
+  replaced, where it doubled as the tenant's Zitadel organization ID).
 - A `Transaction` snapshots the product's name at creation time
   (`ProductName`), so a receipt stays accurate even if the product is later
   renamed or deleted.
@@ -69,8 +71,8 @@ data coming from `scale-gateway`.
 
 | Method & path | Access | Purpose |
 |---|---|---|
-| `GET /me` | any | The caller's own user record (tenant, role, display name) — the only way a client learns this after Zitadel login |
-| `POST /users` | admin | Create a vendor user (Zitadel identity + local record) |
+| `GET /me` | any | The caller's own user record (tenant, role, display name) — the only way a client learns this after Rauthy login |
+| `POST /users` | admin | Create a vendor user (Rauthy identity + local record) |
 | `GET /users` | admin | List the tenant's users |
 | `DELETE /users/{id}` | admin | Delete a vendor user |
 | `GET /products` | any | List the tenant's products |
@@ -98,21 +100,21 @@ cross-tenant existence.
 |---|---|
 | `DATABASE_URL` | Postgres connection string |
 | `LISTEN_ADDR` | HTTP listen address (default `:8081`) |
-| `ZITADEL_ISSUER_URL` | Zitadel's externally-configured issuer (must match its `ZITADEL_EXTERNALDOMAIN`/port exactly — used for token issuer validation) |
-| `ZITADEL_DISCOVERY_URL` | Address core-api actually reaches Zitadel at to fetch its OIDC discovery document/JWKS; defaults to `ZITADEL_ISSUER_URL` if unset |
-| `ZITADEL_AUDIENCE` | Expected token audience (API/client ID) |
-| `ZITADEL_BASE_URL` | Zitadel instance base URL, for the admin API |
-| `ZITADEL_SERVICE_TOKEN` | Bearer token for a Zitadel service account with user-management permissions |
+| `RAUTHY_ISSUER_URL` | Rauthy's externally-configured issuer, including its `/auth/v1` path prefix (must match its `server.pub_url`/`PUB_URL` exactly — used for token issuer validation) |
+| `RAUTHY_DISCOVERY_URL` | Address core-api actually reaches Rauthy at to fetch its OIDC discovery document/JWKS; defaults to `RAUTHY_ISSUER_URL` if unset |
+| `RAUTHY_AUDIENCE` | Expected token audience (API/client ID) |
+| `RAUTHY_BASE_URL` | Rauthy instance API base URL, including `/auth/v1`, for the admin API |
+| `RAUTHY_API_KEY` | A Rauthy API key with `Users` create/delete access, formatted `<name>$<secret>` (see the root docker-compose.yml's `rauthy` service and `rauthy-bootstrap/`) |
 | `SMTP_ADDR` | SMTP server `host:port` for sending receipts |
 | `SMTP_FROM` | From address for receipt emails |
 | `STRIPE_SECRET_KEY` | Stripe secret API key |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret for the `/webhooks/stripe` endpoint (from the Stripe dashboard) |
 | `CURRENCY` | ISO currency code for payment intents, lowercase (default `chf`) |
 
-`ZITADEL_ISSUER_URL` and `ZITADEL_DISCOVERY_URL` are only ever different
-when core-api reaches Zitadel over an internal address (e.g. the
-`http://zitadel:8080` Docker Compose service name) that isn't the same
-address Zitadel was told is its own public identity (e.g. `localhost` or a
+`RAUTHY_ISSUER_URL` and `RAUTHY_DISCOVERY_URL` are only ever different when
+core-api reaches Rauthy over an internal address (e.g. the
+`http://rauthy:8080` Docker Compose service name) that isn't the same
+address Rauthy was told is its own public identity (e.g. `localhost` or a
 LAN IP for phone testing). OIDC discovery requires the fetched document's
 `issuer` field to match the URL it was fetched from, so a single shared URL
 breaks the moment those two addresses differ — see
@@ -122,8 +124,8 @@ breaks the moment those two addresses differ — see
 ## Running
 
 ```
-DATABASE_URL=... ZITADEL_ISSUER_URL=... ZITADEL_AUDIENCE=... \
-ZITADEL_BASE_URL=... ZITADEL_SERVICE_TOKEN=... SMTP_ADDR=... SMTP_FROM=... \
+DATABASE_URL=... RAUTHY_ISSUER_URL=... RAUTHY_AUDIENCE=... \
+RAUTHY_BASE_URL=... RAUTHY_API_KEY=... SMTP_ADDR=... SMTP_FROM=... \
   go run ./cmd/core-api
 ```
 
@@ -134,7 +136,7 @@ go test ./...
 ```
 
 Unit tests use the in-memory store, a fake token verifier, and a fake
-Zitadel admin client/email sender — no live Zitadel, Postgres, or SMTP
+Rauthy admin client/email sender — no live Rauthy, Postgres, or SMTP
 server needed. The `internal/storage/postgres` package additionally has
 real integration tests, skipped unless `DATABASE_URL` is set (they were run
 and passed against a local Postgres 15 instance while building this).
@@ -142,11 +144,15 @@ and passed against a local Postgres 15 instance while building this).
 real TCP socket, so `SMTPSender` is exercised against actual wire protocol
 behavior, not a mocked interface.
 
-**Unverified against a live Zitadel instance:** `ZitadelAdminClient`'s
-request/response shapes are grounded in Zitadel's own API docs (linked in
-`internal/auth/admin_client.go`) since no live instance or credentials were
-available while building this — check it against a real instance before
-relying on it in production.
+**Unverified against a live Rauthy instance:** `RauthyAdminClient`'s
+request/response shapes are grounded in Rauthy's own OpenAPI spec (fetched
+live from a running instance — see `internal/auth/admin_client.go`) rather
+than guessed, but no live instance or credentials were available while
+building this — check it against a real instance before relying on it in
+production. `RauthyVerifier` itself needed no logic changes at all: it's
+built on `coreos/go-oidc` against the standard OIDC discovery document, so
+it never actually depended on anything Zitadel-specific in the first
+place — only the identifiers/comments around it changed.
 
 **Stripe** uses the official `stripe-go` SDK, so its request/response
 shapes are correct by construction (the compiler enforces the real API

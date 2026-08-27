@@ -2,7 +2,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:oidc/oidc.dart';
 import 'package:oidc_default_store/oidc_default_store.dart';
 
-/// Zitadel OIDC configuration. There's one login flow for every user —
+/// Rauthy OIDC configuration. There's one login flow for every user —
 /// admin vs. vendor is a role on the resulting core-api user record (see
 /// GET /me), not a separate authentication path.
 class AuthConfig {
@@ -43,7 +43,7 @@ class AuthService {
       discoveryDocumentUri: OidcUtils.getOpenIdConfigWellKnownUri(
         Uri.parse(config.issuer),
       ),
-      // Zitadel's native/SPA clients are public (no client secret) — PKCE
+      // Rauthy's native/SPA clients are public (no client secret) — PKCE
       // is what secures the code exchange instead.
       clientCredentials: OidcClientAuthentication.none(
         clientId: config.clientId,
@@ -55,7 +55,7 @@ class AuthService {
         postLogoutRedirectUri: config.postLogoutRedirectUri,
         // Keeps a session usable (against the cached token) through a brief
         // network drop instead of forcing a fresh login the moment a
-        // background refresh fails to reach Zitadel.
+        // background refresh fails to reach Rauthy.
         supportOfflineAuth: true,
       ),
     );

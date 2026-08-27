@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS tenants (
 CREATE TABLE IF NOT EXISTS users (
     id                 TEXT PRIMARY KEY,
     tenant_id          TEXT NOT NULL REFERENCES tenants(id),
-    zitadel_subject_id TEXT NOT NULL UNIQUE,
+    rauthy_subject_id TEXT NOT NULL UNIQUE,
     display_name       TEXT NOT NULL,
     email              TEXT NOT NULL,
     role               TEXT NOT NULL,

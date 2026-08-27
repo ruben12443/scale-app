@@ -26,7 +26,7 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<!-- Local-dev only: the backend (core-api, scale-gateway, Zitadel) runs
+	<!-- Local-dev only: the backend (core-api, scale-gateway, Rauthy) runs
 	     over plain HTTP with no TLS. iOS blocks non-HTTPS traffic by
 	     default (App Transport Security). Remove this once pointing at a
 	     real HTTPS deployment. -->

@@ -48,8 +48,8 @@ func TestUserHandlersCreate(t *testing.T) {
 	if created.TenantID != "tenant-1" || created.Role != domain.RoleVendor || created.Email != "vendor@example.com" {
 		t.Fatalf("unexpected created user: %+v", created)
 	}
-	if _, ok := admin.Created[created.ZitadelSubjectID]; !ok {
-		t.Fatalf("expected admin client to have created subject %q", created.ZitadelSubjectID)
+	if _, ok := admin.Created[created.RauthySubjectID]; !ok {
+		t.Fatalf("expected admin client to have created subject %q", created.RauthySubjectID)
 	}
 
 	stored, err := store.Users().Get(context.Background(), created.ID)
@@ -114,7 +114,7 @@ func TestUserHandlersListScopedToTenant(t *testing.T) {
 func TestUserHandlersDelete(t *testing.T) {
 	h, store, admin := newTestUserHandlers(t)
 	ctx := context.Background()
-	target := &domain.User{ID: "u1", TenantID: "tenant-1", ZitadelSubjectID: "sub-1"}
+	target := &domain.User{ID: "u1", TenantID: "tenant-1", RauthySubjectID: "sub-1"}
 	_ = store.Users().Create(ctx, target)
 	admin.Created["sub-1"] = auth.FakeCreatedUser{}
 
@@ -151,7 +151,7 @@ func TestUserHandlersDeleteNotFound(t *testing.T) {
 func TestUserHandlersDeleteCrossTenantReportsNotFound(t *testing.T) {
 	h, store, _ := newTestUserHandlers(t)
 	ctx := context.Background()
-	_ = store.Users().Create(ctx, &domain.User{ID: "u1", TenantID: "tenant-2", ZitadelSubjectID: "sub-1"})
+	_ = store.Users().Create(ctx, &domain.User{ID: "u1", TenantID: "tenant-2", RauthySubjectID: "sub-1"})
 
 	actor := &domain.User{ID: "admin-1", TenantID: "tenant-1", Role: domain.RoleAdmin}
 	req := requestAs(actor, http.MethodDelete, "/users/u1", nil)

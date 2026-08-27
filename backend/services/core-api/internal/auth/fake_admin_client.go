@@ -7,7 +7,7 @@ import (
 )
 
 // FakeAdminClient is an in-memory AdminClient for tests, with no dependency
-// on a live Zitadel instance.
+// on a live Rauthy instance.
 type FakeAdminClient struct {
 	mu      sync.Mutex
 	nextID  int
@@ -17,7 +17,6 @@ type FakeAdminClient struct {
 
 // FakeCreatedUser records the arguments a test passed to CreateVendorUser.
 type FakeCreatedUser struct {
-	OrgID       string
 	Email       string
 	DisplayName string
 }
@@ -27,12 +26,12 @@ func NewFakeAdminClient() *FakeAdminClient {
 	return &FakeAdminClient{Created: map[string]FakeCreatedUser{}, Deleted: map[string]bool{}}
 }
 
-func (f *FakeAdminClient) CreateVendorUser(ctx context.Context, orgID, email, displayName string) (string, error) {
+func (f *FakeAdminClient) CreateVendorUser(ctx context.Context, email, displayName string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextID++
 	id := fmt.Sprintf("fake-subject-%d", f.nextID)
-	f.Created[id] = FakeCreatedUser{OrgID: orgID, Email: email, DisplayName: displayName}
+	f.Created[id] = FakeCreatedUser{Email: email, DisplayName: displayName}
 	return id, nil
 }
 

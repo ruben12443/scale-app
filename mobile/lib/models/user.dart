@@ -3,7 +3,7 @@
 class AppUser {
   final String id;
   final String tenantId;
-  final String zitadelSubjectId;
+  final String rauthySubjectId;
   final String displayName;
   final String email;
   final String role; // "admin" or "vendor"
@@ -12,7 +12,7 @@ class AppUser {
   const AppUser({
     required this.id,
     required this.tenantId,
-    required this.zitadelSubjectId,
+    required this.rauthySubjectId,
     required this.displayName,
     required this.email,
     required this.role,
@@ -25,7 +25,7 @@ class AppUser {
     return AppUser(
       id: json['id'] as String,
       tenantId: json['tenant_id'] as String,
-      zitadelSubjectId: json['zitadel_subject_id'] as String,
+      rauthySubjectId: json['rauthy_subject_id'] as String,
       displayName: json['display_name'] as String,
       email: json['email'] as String,
       role: json['role'] as String,

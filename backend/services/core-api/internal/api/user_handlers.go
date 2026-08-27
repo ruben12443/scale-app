@@ -26,7 +26,7 @@ type createUserRequest struct {
 	DisplayName string `json:"display_name"`
 }
 
-// Create provisions a new vendor user: a Zitadel identity via Admin, then a
+// Create provisions a new vendor user: a Rauthy identity via Admin, then a
 // local User record scoped to the caller's tenant.
 func (h *UserHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	actor, ok := auth.UserFromContext(r.Context())
@@ -47,20 +47,20 @@ func (h *UserHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subjectID, err := h.Admin.CreateVendorUser(r.Context(), actor.TenantID, req.Email, req.DisplayName)
+	subjectID, err := h.Admin.CreateVendorUser(r.Context(), req.Email, req.DisplayName)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "create identity: "+err.Error())
 		return
 	}
 
 	user := &domain.User{
-		ID:               idgen.New(),
-		TenantID:         actor.TenantID,
-		ZitadelSubjectID: subjectID,
-		DisplayName:      req.DisplayName,
-		Email:            req.Email,
-		Role:             domain.RoleVendor,
-		CreatedAt:        time.Now().UTC(),
+		ID:              idgen.New(),
+		TenantID:        actor.TenantID,
+		RauthySubjectID: subjectID,
+		DisplayName:     req.DisplayName,
+		Email:           req.Email,
+		Role:            domain.RoleVendor,
+		CreatedAt:       time.Now().UTC(),
 	}
 	if err := h.Users.Create(r.Context(), user); err != nil {
 		writeError(w, http.StatusInternalServerError, "store user: "+err.Error())
@@ -71,7 +71,7 @@ func (h *UserHandlers) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 // Me returns the caller's own user record. It's the only way a client can
-// learn its own tenant/role/display name after logging in via Zitadel,
+// learn its own tenant/role/display name after logging in via Rauthy,
 // since the ID token's subject alone doesn't carry that.
 func (h *UserHandlers) Me(w http.ResponseWriter, r *http.Request) {
 	actor, ok := auth.UserFromContext(r.Context())
@@ -99,7 +99,7 @@ func (h *UserHandlers) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete removes a user from the caller's tenant, both locally and in
-// Zitadel. A target from a different tenant is reported as not found rather
+// Rauthy. A target from a different tenant is reported as not found rather
 // than forbidden, so the endpoint doesn't leak cross-tenant existence.
 func (h *UserHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 	actor, ok := auth.UserFromContext(r.Context())
@@ -123,7 +123,7 @@ func (h *UserHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Admin.DeleteUser(r.Context(), target.ZitadelSubjectID); err != nil {
+	if err := h.Admin.DeleteUser(r.Context(), target.RauthySubjectID); err != nil {
 		writeError(w, http.StatusBadGateway, "delete identity: "+err.Error())
 		return
 	}

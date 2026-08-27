@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-func TestZitadelAdminClientCreateVendorUser(t *testing.T) {
+func TestRauthyAdminClientCreateVendorUser(t *testing.T) {
 	var gotMethod, gotPath, gotAuth string
-	var gotBody createHumanUserRequest
+	var gotBody newUserRequest
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
@@ -19,12 +19,12 @@ func TestZitadelAdminClientCreateVendorUser(t *testing.T) {
 			t.Fatalf("decode request body: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(createHumanUserResponse{UserID: "new-user-id"})
+		_ = json.NewEncoder(w).Encode(userResponse{ID: "new-user-id"})
 	}))
 	defer srv.Close()
 
-	client := &ZitadelAdminClient{BaseURL: srv.URL, BearerToken: "service-token"}
-	subjectID, err := client.CreateVendorUser(t.Context(), "org-1", "vendor@example.com", "Jane Vendor")
+	client := &RauthyAdminClient{BaseURL: srv.URL, APIKey: "bootstrap$service-secret"}
+	subjectID, err := client.CreateVendorUser(t.Context(), "vendor@example.com", "Jane Vendor")
 	if err != nil {
 		t.Fatalf("CreateVendorUser returned error: %v", err)
 	}
@@ -35,46 +35,50 @@ func TestZitadelAdminClientCreateVendorUser(t *testing.T) {
 	if gotMethod != http.MethodPost {
 		t.Fatalf("method = %q, want %q", gotMethod, http.MethodPost)
 	}
-	if gotPath != "/v2/users/human" {
-		t.Fatalf("path = %q, want %q", gotPath, "/v2/users/human")
+	if gotPath != "/users" {
+		t.Fatalf("path = %q, want %q", gotPath, "/users")
 	}
-	if gotAuth != "Bearer service-token" {
-		t.Fatalf("Authorization = %q, want %q", gotAuth, "Bearer service-token")
+	if gotAuth != "API-Key bootstrap$service-secret" {
+		t.Fatalf("Authorization = %q, want %q", gotAuth, "API-Key bootstrap$service-secret")
 	}
-	if gotBody.Organization.OrgID != "org-1" {
-		t.Fatalf("Organization.OrgID = %q, want %q", gotBody.Organization.OrgID, "org-1")
+	if gotBody.Email != "vendor@example.com" {
+		t.Fatalf("Email = %q, want %q", gotBody.Email, "vendor@example.com")
 	}
-	if gotBody.Email.Email != "vendor@example.com" {
-		t.Fatalf("Email.Email = %q, want %q", gotBody.Email.Email, "vendor@example.com")
+	if gotBody.GivenName != "Jane Vendor" || gotBody.FamilyName != "Jane Vendor" {
+		t.Fatalf("GivenName/FamilyName = %q/%q, want both %q", gotBody.GivenName, gotBody.FamilyName, "Jane Vendor")
 	}
-	if gotBody.Password.Password == "" || !gotBody.Password.ChangeRequired {
-		t.Fatalf("expected a non-empty temporary password with ChangeRequired=true, got %+v", gotBody.Password)
+	if gotBody.Language != "en" {
+		t.Fatalf("Language = %q, want %q", gotBody.Language, "en")
+	}
+	if gotBody.Roles == nil || len(gotBody.Roles) != 0 {
+		t.Fatalf("Roles = %v, want an empty (non-nil) slice", gotBody.Roles)
 	}
 }
 
-func TestZitadelAdminClientCreateVendorUserErrorStatus(t *testing.T) {
+func TestRauthyAdminClientCreateVendorUserErrorStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusConflict)
-		_, _ = w.Write([]byte(`{"message":"user already exists"}`))
+		_, _ = w.Write([]byte(`{"error":"user already exists"}`))
 	}))
 	defer srv.Close()
 
-	client := &ZitadelAdminClient{BaseURL: srv.URL, BearerToken: "service-token"}
-	if _, err := client.CreateVendorUser(t.Context(), "org-1", "vendor@example.com", "Jane Vendor"); err == nil {
+	client := &RauthyAdminClient{BaseURL: srv.URL, APIKey: "bootstrap$service-secret"}
+	if _, err := client.CreateVendorUser(t.Context(), "vendor@example.com", "Jane Vendor"); err == nil {
 		t.Fatal("expected an error for a non-2xx response, got nil")
 	}
 }
 
-func TestZitadelAdminClientDeleteUser(t *testing.T) {
-	var gotMethod, gotPath string
+func TestRauthyAdminClientDeleteUser(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
-		w.WriteHeader(http.StatusOK)
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
-	client := &ZitadelAdminClient{BaseURL: srv.URL, BearerToken: "service-token"}
+	client := &RauthyAdminClient{BaseURL: srv.URL, APIKey: "bootstrap$service-secret"}
 	if err := client.DeleteUser(t.Context(), "user-1"); err != nil {
 		t.Fatalf("DeleteUser returned error: %v", err)
 	}
@@ -82,15 +86,18 @@ func TestZitadelAdminClientDeleteUser(t *testing.T) {
 	if gotMethod != http.MethodDelete {
 		t.Fatalf("method = %q, want %q", gotMethod, http.MethodDelete)
 	}
-	if gotPath != "/v2/users/user-1" {
-		t.Fatalf("path = %q, want %q", gotPath, "/v2/users/user-1")
+	if gotPath != "/users/user-1" {
+		t.Fatalf("path = %q, want %q", gotPath, "/users/user-1")
+	}
+	if gotAuth != "API-Key bootstrap$service-secret" {
+		t.Fatalf("Authorization = %q, want %q", gotAuth, "API-Key bootstrap$service-secret")
 	}
 }
 
 func TestFakeAdminClientRoundTrip(t *testing.T) {
 	client := NewFakeAdminClient()
 
-	id, err := client.CreateVendorUser(t.Context(), "org-1", "vendor@example.com", "Jane Vendor")
+	id, err := client.CreateVendorUser(t.Context(), "vendor@example.com", "Jane Vendor")
 	if err != nil {
 		t.Fatalf("CreateVendorUser returned error: %v", err)
 	}

@@ -16,7 +16,7 @@ import (
 )
 
 // fakeVerifier lets server tests exercise the full auth.Middleware chain
-// without a live Zitadel instance.
+// without a live Rauthy instance.
 type fakeVerifier struct{ subject string }
 
 func (f fakeVerifier) Verify(ctx context.Context, rawToken string) (string, error) {
@@ -52,7 +52,7 @@ func TestServerRejectsUnauthenticated(t *testing.T) {
 
 func TestServerRejectsNonAdminOnAdminRoute(t *testing.T) {
 	store := memory.New()
-	_ = store.Users().Create(context.Background(), &domain.User{ID: "u1", TenantID: "t1", ZitadelSubjectID: "sub-vendor", Role: domain.RoleVendor})
+	_ = store.Users().Create(context.Background(), &domain.User{ID: "u1", TenantID: "t1", RauthySubjectID: "sub-vendor", Role: domain.RoleVendor})
 	srv := newTestServer(store, fakeVerifier{subject: "sub-vendor"})
 
 	req := httptest.NewRequest(http.MethodGet, "/users", nil)
@@ -67,7 +67,7 @@ func TestServerRejectsNonAdminOnAdminRoute(t *testing.T) {
 
 func TestServerAllowsAdminEndToEnd(t *testing.T) {
 	store := memory.New()
-	_ = store.Users().Create(context.Background(), &domain.User{ID: "admin-1", TenantID: "t1", ZitadelSubjectID: "sub-admin", Role: domain.RoleAdmin})
+	_ = store.Users().Create(context.Background(), &domain.User{ID: "admin-1", TenantID: "t1", RauthySubjectID: "sub-admin", Role: domain.RoleAdmin})
 	srv := newTestServer(store, fakeVerifier{subject: "sub-admin"})
 
 	body := []byte(`{"email":"vendor@example.com","display_name":"Jane Vendor"}`)

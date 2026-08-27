@@ -14,7 +14,7 @@ Flutter app for scale-app's vendor-facing mobile client.
   package — an OpenID-certified relying party with real Android/iOS/macOS/
   web/desktop support, unlike its predecessor `flutter_appauth`, which had
   no web implementation at all) for the Authorization Code + PKCE flow
-  against Zitadel. The manager owns session persistence and background
+  against Rauthy. The manager owns session persistence and background
   token refresh itself; `AuthState` (a `ChangeNotifier`) just mirrors its
   `userChanges` stream and exposes `ensureFreshAccessToken()` for the API
   client to call before each request.
@@ -27,7 +27,7 @@ Flutter app for scale-app's vendor-facing mobile client.
 
 - **One login flow, not two.** The original ask was "vendor login" and
   "admin login." The backend doesn't actually have two login paths — every
-  user authenticates via Zitadel the same way, and `GET /me` tells the app
+  user authenticates via Rauthy the same way, and `GET /me` tells the app
   whether that account is `admin` or `vendor`. `HomeShell` shows the
   Vendors (admin user management) tab only when the fetched role is admin;
   the backend enforces this independently via `RequireRole`, so this is
@@ -86,15 +86,15 @@ All of the above were run and passed while building this. What's **not**
 verified, consistent with the other integrations flagged elsewhere in this
 repo:
 
-- **The Zitadel OIDC login flow itself.** `AuthService`/`AuthState` are
+- **The Rauthy OIDC login flow itself.** `AuthService`/`AuthState` are
   built against the `oidc` package's real, verified API (checked against
   its source, not guessed — including copying its `web/redirect.html`
   verbatim, as its own docs require), and `AuthState`'s session-mirroring
   logic is unit tested against a fake `AuthService` (constructing real,
   if unverified, `OidcUser`/`OidcToken` objects rather than a bespoke
   session type) — but the actual browser redirect + token exchange against
-  a live Zitadel instance has not been exercised, since no live instance
-  or `ZITADEL_CLIENT_ID` was available while building this. The token
+  a live Rauthy instance has not been exercised, since no live instance
+  or `RAUTHY_CLIENT_ID` was available while building this. The token
   expiry/refresh logic itself is no longer ours to unit-test at all — it's
   now inside the `oidc` package (OpenID-certified, with its own test
   suite), which is arguably more trustworthy than the hand-rolled version
@@ -132,9 +132,9 @@ repo:
 
 Overridable at build/run time via `--dart-define` (see `lib/config.dart`
 for the full list and defaults, which point at the local docker-compose
-stack): `CORE_API_BASE_URL`, `SCALE_GATEWAY_BASE_URL`, `ZITADEL_ISSUER`,
-`ZITADEL_CLIENT_ID`, `ZITADEL_REDIRECT_URL` (native only — the custom-scheme
-callback), `ZITADEL_WEB_REDIRECT_PATH` (web only — a path resolved against
+stack): `CORE_API_BASE_URL`, `SCALE_GATEWAY_BASE_URL`, `RAUTHY_ISSUER`,
+`RAUTHY_CLIENT_ID`, `RAUTHY_REDIRECT_URL` (native only — the custom-scheme
+callback), `RAUTHY_WEB_REDIRECT_PATH` (web only — a path resolved against
 wherever the app is actually served from; defaults to `redirect.html` and
 rarely needs overriding).
 
@@ -162,37 +162,19 @@ phone's browser and use the browser's own "Add to Home Screen" / install
 prompt — there's no app store listing and nothing to sideload. Locally,
 `docker-compose.yml`'s `mobile-web` service builds and serves exactly this
 (`mobile/Dockerfile`, multi-stage: `flutter build web` then plain nginx)
-on port 8083, using `ZITADEL_DOMAIN` the same way `zitadel-login` already
-does — whatever host (a LAN IP for a phone, `localhost` for a desktop
-browser) the vendor's device will actually reach this stack on.
+on port 8083, using `RAUTHY_DOMAIN` the same way the `rauthy` service
+already does — whatever host (a LAN IP for a phone, `localhost` for a
+desktop browser) the vendor's device will actually reach this stack on.
 
-Login itself now works the same way on web as everywhere else — see
-`lib/auth/`'s notes above on replacing `flutter_appauth` (which had no web
-support at all) with the `oidc` package. `web/redirect.html` (copied
-verbatim from that package, per its own instructions — re-copy it if the
-package is ever upgraded) is the page the Zitadel redirect actually lands
-on. Two things this local setup does **not** yet cover, both pre-existing
-gaps rather than new ones:
+Login itself works the same way on web as everywhere else — see
+`lib/auth/`'s notes above on `flutter_appauth` (which had no web support at
+all) having been replaced by the `oidc` package before Rauthy even entered
+the picture. `web/redirect.html` (copied verbatim from that package, per
+its own instructions — re-copy it if the package is ever upgraded) is the
+page the Rauthy redirect actually lands on. One thing this local setup
+does **not** yet cover:
 
-- **A Zitadel OIDC client for the mobile app.** `.env` has no
-  `ZITADEL_CLIENT_ID` today, for any platform — one needs to be
-  provisioned in Zitadel, with the web build's actual origin (e.g.
-  `http://<lan-ip>:8083/redirect.html`) registered as an allowed redirect
-  URI, before login works anywhere, web included.
 - **Production hosting.** `mobile-web` is a local/dev convenience — actual
   distribution to vendors needs real HTTPS and a real domain (browsers
   gate PWA installability on HTTPS outside of `localhost`), which is
   infrastructure this repo doesn't set up.
-
-**Login on web is currently broken regardless of the above** — see
-"Verified vs. not": `flutter_appauth` (the package `AuthService` wraps)
-declares no web platform implementation at all, so `authorizeAndExchangeCode`
-throws `MissingPluginException` there. The rest of the app — installing
-the PWA, and the whole Scales/Sell/Receipt flow once past login — is
-unaffected and works identically to mobile; only the login button itself
-needs a web-specific fix (a different OIDC flow for that one platform, or
-replacing `flutter_appauth` with a package that has real web support) to
-close the gap. Confirmed by inspecting `flutter_appauth`'s pubspec
-(`platforms:` lists only `android`/`ios`/`macos`) and by a successful
-`flutter build web` that would fail at *runtime*, not compile time, the
-moment login is attempted.

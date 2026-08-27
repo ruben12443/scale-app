@@ -6,7 +6,7 @@ import 'package:oidc/oidc.dart';
 import '../models/user.dart';
 import 'auth_service.dart';
 
-/// App-wide login state: the current Zitadel session (via [AuthService]/
+/// App-wide login state: the current Rauthy session (via [AuthService]/
 /// `OidcUserManager`, which owns persistence and refresh) and the
 /// corresponding core-api user record (tenant/role/display name, from
 /// GET /me).

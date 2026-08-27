@@ -3,8 +3,6 @@ package auth
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,111 +10,97 @@ import (
 )
 
 // AdminClient manages user identities in the external identity provider
-// (Zitadel), separate from the local User record core-api keeps for
+// (Rauthy), separate from the local User record core-api keeps for
 // tenant/role scoping.
 type AdminClient interface {
-	// CreateVendorUser creates a new human user under the given Zitadel
-	// organization and returns Zitadel's subject/user ID for it.
-	CreateVendorUser(ctx context.Context, orgID, email, displayName string) (subjectID string, err error)
-	// DeleteUser deletes the user with the given subject ID. Per Zitadel's
-	// semantics this marks the user deleted and invalidates all of its
-	// sessions and tokens.
+	// CreateVendorUser creates a new user in Rauthy and returns its subject
+	// (user) ID. Rauthy has no organization/tenant concept of its own (see
+	// domain.Tenant's doc comment) so, unlike the Zitadel admin client this
+	// replaced, there's no org/tenant scoping parameter to pass — core-api's
+	// own User record is solely responsible for that.
+	CreateVendorUser(ctx context.Context, email, displayName string) (subjectID string, err error)
+	// DeleteUser deletes the user with the given subject ID.
 	DeleteUser(ctx context.Context, subjectID string) error
 }
 
-// ZitadelAdminClient implements AdminClient against Zitadel's v2 User API.
+// RauthyAdminClient implements AdminClient against Rauthy's admin User API.
 //
-// Endpoint shapes follow:
-//   - https://zitadel.com/docs/apis/resources/user_service_v2/user-service-add-human-user
-//   - https://zitadel.com/docs/reference/api/user/zitadel.user.v2.UserService.DeleteUser
+// Endpoint shapes follow Rauthy's OpenAPI spec (POST /users, DELETE
+// /users/{id}) — fetched from a live instance
+// (https://iam.sebadob.dev/auth/v1/docs/openapi.json) while building this,
+// not guessed. Authentication uses Rauthy's API Key scheme (`Authorization:
+// API-Key <name>$<secret>`), not a bearer token — API keys are how Rauthy
+// expects automated/service callers to authenticate, since a normal user
+// session additionally needs CSRF handling meant for browsers. See the root
+// docker-compose.yml's rauthy service and rauthy-bootstrap/api_keys.json for
+// how the key this client uses is provisioned.
 //
-// This has not been exercised against a real Zitadel instance — no live
+// This has not been exercised against a real Rauthy instance — no live
 // instance or credentials were available while building it — so treat it as
 // unverified until checked against one.
-type ZitadelAdminClient struct {
-	// BaseURL is the Zitadel instance's custom domain, e.g.
-	// "https://your-instance.zitadel.cloud".
+type RauthyAdminClient struct {
+	// BaseURL is the Rauthy instance's API base, e.g.
+	// "http://rauthy:8080/auth/v1".
 	BaseURL string
-	// BearerToken authenticates as a service account with user-management
-	// permissions.
-	BearerToken string
+	// APIKey authenticates as a bootstrapped Rauthy API key with `Users`
+	// create/delete access, formatted as "<name>$<secret>".
+	APIKey string
 	// HTTPClient is used for requests; http.DefaultClient if nil.
 	HTTPClient *http.Client
 }
 
-func (z *ZitadelAdminClient) httpClient() *http.Client {
-	if z.HTTPClient != nil {
-		return z.HTTPClient
+func (r *RauthyAdminClient) httpClient() *http.Client {
+	if r.HTTPClient != nil {
+		return r.HTTPClient
 	}
 	return http.DefaultClient
 }
 
-type createHumanUserRequest struct {
-	Username     string                      `json:"username"`
-	Profile      createHumanUserProfile      `json:"profile"`
-	Email        createHumanUserEmail        `json:"email"`
-	Password     createHumanUserPassword     `json:"password"`
-	Organization createHumanUserOrganization `json:"organization"`
+// newUserRequest mirrors Rauthy's NewUserRequest. roles/groups are left
+// empty: role authorization is entirely core-api's own concern (see
+// domain.User's doc comment), not something Rauthy needs to know about.
+type newUserRequest struct {
+	Email      string   `json:"email"`
+	GivenName  string   `json:"given_name,omitempty"`
+	FamilyName string   `json:"family_name,omitempty"`
+	Language   string   `json:"language"`
+	Roles      []string `json:"roles"`
 }
 
-type createHumanUserProfile struct {
-	GivenName   string `json:"givenName"`
-	FamilyName  string `json:"familyName"`
-	DisplayName string `json:"displayName"`
+type userResponse struct {
+	ID string `json:"id"`
 }
 
-type createHumanUserEmail struct {
-	Email      string `json:"email"`
-	IsVerified bool   `json:"isVerified"`
-}
-
-type createHumanUserPassword struct {
-	Password       string `json:"password"`
-	ChangeRequired bool   `json:"changeRequired"`
-}
-
-type createHumanUserOrganization struct {
-	OrgID string `json:"orgId"`
-}
-
-type createHumanUserResponse struct {
-	UserID string `json:"userId"`
-}
-
-// CreateVendorUser creates the user with a random temporary password that
-// must be changed on first login, since the admin creating the account
-// generally doesn't hand-pick a password for someone else.
-func (z *ZitadelAdminClient) CreateVendorUser(ctx context.Context, orgID, email, displayName string) (string, error) {
-	reqBody := createHumanUserRequest{
-		Username: email,
-		Profile: createHumanUserProfile{
-			GivenName:   displayName,
-			FamilyName:  displayName,
-			DisplayName: displayName,
-		},
-		Email: createHumanUserEmail{Email: email, IsVerified: false},
-		Password: createHumanUserPassword{
-			Password:       generateTemporaryPassword(),
-			ChangeRequired: true,
-		},
-		Organization: createHumanUserOrganization{OrgID: orgID},
+// CreateVendorUser creates the user with no password set. Rauthy's own
+// first-login flow takes it from there: the new user gets a password-reset
+// email to set their own password, the same way it works for a user created
+// through Rauthy's Admin UI (see the "First Start" section of its docs) —
+// there's no Zitadel-style "temporary password the admin sees" step to
+// replicate, since Rauthy's user-creation API has no password field at all.
+func (r *RauthyAdminClient) CreateVendorUser(ctx context.Context, email, displayName string) (string, error) {
+	reqBody := newUserRequest{
+		Email:      email,
+		GivenName:  displayName,
+		FamilyName: displayName,
+		Language:   "en",
+		Roles:      []string{},
 	}
 
-	var respBody createHumanUserResponse
-	if err := z.doJSON(ctx, http.MethodPost, "/v2/users/human", reqBody, &respBody); err != nil {
-		return "", fmt.Errorf("auth: create zitadel user: %w", err)
+	var respBody userResponse
+	if err := r.doJSON(ctx, http.MethodPost, "/users", reqBody, &respBody); err != nil {
+		return "", fmt.Errorf("auth: create rauthy user: %w", err)
 	}
-	return respBody.UserID, nil
+	return respBody.ID, nil
 }
 
-func (z *ZitadelAdminClient) DeleteUser(ctx context.Context, subjectID string) error {
-	if err := z.doJSON(ctx, http.MethodDelete, "/v2/users/"+subjectID, nil, nil); err != nil {
-		return fmt.Errorf("auth: delete zitadel user: %w", err)
+func (r *RauthyAdminClient) DeleteUser(ctx context.Context, subjectID string) error {
+	if err := r.doJSON(ctx, http.MethodDelete, "/users/"+subjectID, nil, nil); err != nil {
+		return fmt.Errorf("auth: delete rauthy user: %w", err)
 	}
 	return nil
 }
 
-func (z *ZitadelAdminClient) doJSON(ctx context.Context, method, path string, reqBody, respBody any) error {
+func (r *RauthyAdminClient) doJSON(ctx context.Context, method, path string, reqBody, respBody any) error {
 	var bodyReader io.Reader
 	if reqBody != nil {
 		b, err := json.Marshal(reqBody)
@@ -126,16 +110,16 @@ func (z *ZitadelAdminClient) doJSON(ctx context.Context, method, path string, re
 		bodyReader = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, z.BaseURL+path, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, r.BaseURL+path, bodyReader)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+z.BearerToken)
+	req.Header.Set("Authorization", "API-Key "+r.APIKey)
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := z.httpClient().Do(req)
+	resp, err := r.httpClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}
@@ -152,15 +136,4 @@ func (z *ZitadelAdminClient) doJSON(ctx context.Context, method, path string, re
 		}
 	}
 	return nil
-}
-
-// generateTemporaryPassword returns a random password combining
-// cryptographically random bytes with a fixed suffix that guarantees
-// uppercase, lowercase, digit, and symbol characters are present, since
-// exact complexity requirements depend on the tenant's configured Zitadel
-// password policy.
-func generateTemporaryPassword() string {
-	randomBytes := make([]byte, 18)
-	_, _ = rand.Read(randomBytes) // crypto/rand.Read only fails on unrecoverable OS errors
-	return base64.RawURLEncoding.EncodeToString(randomBytes) + "-Aa1!"
 }

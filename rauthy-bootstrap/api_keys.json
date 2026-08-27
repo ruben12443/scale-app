@@ -1,0 +1,13 @@
+[
+  {
+    "name": "core-api",
+    "exp": 1893456000,
+    "secret": {"Plain": "2ea6d5d5b505a2296e1dcca35d9fb2903b87b6ce2eed26dfdc427fbce0be8c13"},
+    "access": [
+      {
+        "group": "Users",
+        "access_rights": ["read", "create", "update", "delete"]
+      }
+    ]
+  }
+]

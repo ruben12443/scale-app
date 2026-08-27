@@ -16,7 +16,7 @@ String _fakeIdToken(Map<String, dynamic> claims) {
   final header = segment({'alg': 'none', 'typ': 'JWT'});
   final payload = segment({
     'sub': 'test-subject',
-    'iss': 'https://zitadel.test',
+    'iss': 'https://rauthy.test',
     ...claims,
   });
   return '$header.$payload.';
@@ -52,7 +52,7 @@ class FakeAuthService extends AuthService {
   FakeAuthService()
     : super(
         AuthConfig(
-          issuer: 'https://zitadel.test',
+          issuer: 'https://rauthy.test',
           clientId: 'test-client',
           redirectUri: Uri.parse('com.scaleapp.stallhand:/callback'),
         ),
@@ -102,7 +102,7 @@ class FakeAuthService extends AuthService {
 AppUser _testAppUser() => AppUser(
   id: 'u1',
   tenantId: 't1',
-  zitadelSubjectId: 'sub-1',
+  rauthySubjectId: 'sub-1',
   displayName: 'Jane',
   email: 'jane@example.com',
   role: 'vendor',

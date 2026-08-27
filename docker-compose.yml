@@ -13,87 +13,48 @@ services:
       timeout: 5s
       retries: 10
 
-  zitadel-db:
-    image: docker.io/library/postgres:16-alpine
+  # Replaces Zitadel + zitadel-db + zitadel-login: Rauthy is a single
+  # self-contained OIDC provider — no separate login-UI service to run
+  # alongside it, and no external database, since it persists via its own
+  # embedded store (Hiqlite) onto the rauthy-data volume below instead.
+  # See mobile/README.md and backend/services/core-api/README.md for how
+  # each side integrates, and rauthy-bootstrap/README.md for what the
+  # mounted bootstrap files below actually set up.
+  rauthy:
+    image: ghcr.io/sebadob/rauthy:0.36.2
     environment:
-      POSTGRES_USER: zitadel
-      POSTGRES_PASSWORD: ${ZITADEL_DB_PASSWORD}
-      POSTGRES_DB: zitadel
-    volumes:
-      - zitadel-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U zitadel"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  # Zitadel v4 split its login UI out into a separate service ("Login V2",
-  # a Next.js app - see zitadel-login below); the zitadel-api container
-  # alone does not serve /ui/v2/login/* at all. The official reference
-  # compose (github.com/zitadel/zitadel/blob/main/deploy/compose/docker-compose.yml)
-  # unifies both under one domain/port via Traefik; we skip Traefik here
-  # for local-dev simplicity and just publish both containers on their own
-  # ports directly (zitadel-api on 8080, zitadel-login on 3000) - the
-  # browser is redirected between them via full URLs, which works fine
-  # against localhost even without a shared origin.
-  zitadel:
-    image: ghcr.io/zitadel/zitadel:latest
-    command: >
-      start-from-init
-      --masterkey "${ZITADEL_MASTERKEY}"
-    environment:
-      ZITADEL_DATABASE_POSTGRES_DSN: "postgresql://zitadel:${ZITADEL_DB_PASSWORD}@zitadel-db:5432/zitadel?sslmode=disable"
-      # ZITADEL_DOMAIN is whatever host the mobile app/browser will reach
+      LISTEN_SCHEME: "http"
+      # RAUTHY_DOMAIN is whatever host the mobile app/browser will reach
       # this stack on: "localhost" for the desktop, or a LAN IP (e.g.
-      # 192.168.1.42) when testing from a phone on the same network. Login
-      # V2's URLs below must point at the same host, since the browser is
-      # redirected there directly (not proxied through zitadel).
-      ZITADEL_EXTERNALDOMAIN: ${ZITADEL_DOMAIN}
-      ZITADEL_EXTERNALPORT: "8080"
-      ZITADEL_EXTERNALSECURE: "false"
-      ZITADEL_TLS_ENABLED: "false"
-      # Auto-creates the machine user + Personal Access Token that
-      # zitadel-login authenticates to the API with, and writes the PAT to
-      # the shared zitadel-bootstrap volume for zitadel-login to read.
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
-      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /zitadel/bootstrap/login-client.pat
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: "Automatically Initialized IAM_LOGIN_CLIENT"
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2039-01-01T00:00:00Z"
-      # Forces the v2 login flow (matches what your logs already showed
-      # Zitadel defaulting to) and points it at zitadel-login's published
-      # port instead of the unset default, which is what 404'd.
-      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "true"
-      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: "http://${ZITADEL_DOMAIN}:3000/ui/v2/login/"
-      ZITADEL_OIDC_DEFAULTLOGINURLV2: "http://${ZITADEL_DOMAIN}:3000/ui/v2/login/login?authRequest="
-      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: "http://${ZITADEL_DOMAIN}:3000/ui/v2/login/logout?post_logout_redirect="
+      # 192.168.1.42) when testing from a phone on the same network — the
+      # same role ZITADEL_DOMAIN played before. webauthn.rp_id/rp_origin
+      # are set even though this stack doesn't use passkey login, since
+      # Rauthy expects them regardless.
+      PUB_URL: "${RAUTHY_DOMAIN}:8080"
+      RP_ID: "${RAUTHY_DOMAIN}"
+      RP_ORIGIN: "http://${RAUTHY_DOMAIN}:8080"
+      BOOTSTRAP_DIR: "/app/bootstrap"
+      BOOTSTRAP_ADMIN_EMAIL: "admin@localhost"
+      BOOTSTRAP_ADMIN_PASSWORD_PLAIN: "${RAUTHY_ADMIN_PASSWORD}"
+      ENC_KEYS: "${RAUTHY_ENC_KEYS}"
+      ENC_KEY_ACTIVE: "${RAUTHY_ENC_KEY_ACTIVE}"
+      HQL_NODE_ID: "1"
+      HQL_SECRET_RAFT: "${RAUTHY_HQL_SECRET}"
+      HQL_SECRET_API: "${RAUTHY_HQL_SECRET}"
+      SMTP_URL: "mailpit"
+      SMTP_PORT: "1025"
+      SMTP_DANGER_INSECURE: "true"
+      SMTP_FROM: "Rauthy <rauthy@scale-app.local>"
+    volumes:
+      - rauthy-data:/app/data
+      - ./rauthy-bootstrap:/app/bootstrap:ro
     ports:
       - "8080:8080"
-    volumes:
-      - zitadel-bootstrap:/zitadel/bootstrap:rw
-    healthcheck:
-      test: ["CMD", "/app/zitadel", "ready"]
-      interval: 10s
-      timeout: 30s
-      retries: 12
-      start_period: 20s
+    # No healthcheck: Rauthy's image is distroless (no shell, no
+    # curl/wget), so a CMD-SHELL probe like the other services use here
+    # isn't possible. core-api's depends_on below is start-order only.
     depends_on:
-      zitadel-db:
-        condition: service_healthy
-
-  zitadel-login:
-    image: ghcr.io/zitadel/zitadel-login:latest
-    environment:
-      ZITADEL_API_URL: "http://zitadel:8080"
-      NEXT_PUBLIC_BASE_PATH: /ui/v2/login
-      ZITADEL_SERVICE_USER_TOKEN_FILE: /zitadel/bootstrap/login-client.pat
-    ports:
-      - "3000:3000"
-    volumes:
-      - zitadel-bootstrap:/zitadel/bootstrap:ro
-    depends_on:
-      zitadel:
-        condition: service_healthy
+      - mailpit
 
   mailpit:
     image: docker.io/axllent/mailpit:latest
@@ -118,17 +79,18 @@ services:
     environment:
       DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
       LISTEN_ADDR: ":8081"
-      # ZITADEL_ISSUER_URL must match Zitadel's ZITADEL_EXTERNALDOMAIN above
-      # exactly (OIDC discovery requires it), while ZITADEL_DISCOVERY_URL is
-      # the address core-api actually reaches Zitadel at over the Docker
-      # network — these differ whenever ZITADEL_DOMAIN isn't "zitadel"
-      # (i.e. always, for any real value), which is exactly the split
-      # NewZitadelVerifier's oidc.InsecureIssuerURLContext handles.
-      ZITADEL_ISSUER_URL: "http://${ZITADEL_DOMAIN}:8080"
-      ZITADEL_DISCOVERY_URL: "http://zitadel:8080"
-      ZITADEL_AUDIENCE: ${ZITADEL_AUDIENCE}
-      ZITADEL_BASE_URL: "http://zitadel:8080"
-      ZITADEL_SERVICE_TOKEN: ${ZITADEL_SERVICE_TOKEN}
+      # RAUTHY_ISSUER_URL must match Rauthy's PUB_URL above exactly (OIDC
+      # discovery requires it) plus its /auth/v1 path prefix, while
+      # RAUTHY_DISCOVERY_URL is the address core-api actually reaches
+      # Rauthy at over the Docker network — these differ whenever
+      # RAUTHY_DOMAIN isn't "rauthy" (i.e. always, for any real value),
+      # which is exactly the split NewRauthyVerifier's
+      # oidc.InsecureIssuerURLContext handles.
+      RAUTHY_ISSUER_URL: "http://${RAUTHY_DOMAIN}:8080/auth/v1"
+      RAUTHY_DISCOVERY_URL: "http://rauthy:8080/auth/v1"
+      RAUTHY_AUDIENCE: "stallhand"
+      RAUTHY_BASE_URL: "http://rauthy:8080/auth/v1"
+      RAUTHY_API_KEY: "core-api$$${RAUTHY_API_KEY_SECRET}"
       SMTP_ADDR: "mailpit:1025"
       SMTP_FROM: "receipts@scale-app.local"
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
@@ -139,26 +101,27 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      zitadel:
-        condition: service_healthy
+      rauthy:
+        condition: service_started
 
   # Serves the vendor app as an installable PWA (see mobile/README.md) so a
   # vendor can just visit http://<this host>:8083 on their phone and "Add to
-  # Home Screen" — no app store, no sideloading an APK. ZITADEL_DOMAIN
+  # Home Screen" — no app store, no sideloading an APK. RAUTHY_DOMAIN
   # doubles here as "whatever host the vendor's phone will reach this stack
-  # on", same as it already does for zitadel-login above.
+  # on", same as it already does for the rauthy service above. The client ID
+  # ("stallhand") must match rauthy-bootstrap/clients.json's "id" and
+  # core-api's RAUTHY_AUDIENCE above — all three name the same OIDC client.
   mobile-web:
     build:
       context: ./mobile
       args:
-        CORE_API_BASE_URL: "http://${ZITADEL_DOMAIN}:8081"
-        SCALE_GATEWAY_BASE_URL: "http://${ZITADEL_DOMAIN}:8082"
-        ZITADEL_ISSUER: "http://${ZITADEL_DOMAIN}:8080"
-        ZITADEL_CLIENT_ID: ${ZITADEL_CLIENT_ID}
+        CORE_API_BASE_URL: "http://${RAUTHY_DOMAIN}:8081"
+        SCALE_GATEWAY_BASE_URL: "http://${RAUTHY_DOMAIN}:8082"
+        RAUTHY_ISSUER: "http://${RAUTHY_DOMAIN}:8080/auth/v1"
+        RAUTHY_CLIENT_ID: "stallhand"
     ports:
       - "8083:80"
 
 volumes:
   postgres-data:
-  zitadel-db-data:
-  zitadel-bootstrap:
+  rauthy-data:

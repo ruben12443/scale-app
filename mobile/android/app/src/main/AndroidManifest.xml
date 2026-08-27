@@ -4,7 +4,7 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
-        <!-- Local-dev only: the backend (core-api, scale-gateway, Zitadel)
+        <!-- Local-dev only: the backend (core-api, scale-gateway, Rauthy)
              runs over plain HTTP with no TLS. Android blocks cleartext
              traffic by default since API 28. Remove this once pointing at
              a real HTTPS deployment. -->

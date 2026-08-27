@@ -87,7 +87,7 @@ class CoreApiClient {
   // --- Users ---
 
   /// GET /me — the caller's own user record (tenant, role, display name).
-  /// The only way a client learns this after logging in via Zitadel.
+  /// The only way a client learns this after logging in via Rauthy.
   Future<AppUser> getMe() async {
     final data = await _send('GET', '/me');
     return AppUser.fromJson(data as Map<String, dynamic>);

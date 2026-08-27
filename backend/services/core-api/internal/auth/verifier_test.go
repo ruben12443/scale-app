@@ -13,7 +13,7 @@ import (
 )
 
 // fakeOIDCProvider is a minimal OIDC discovery + JWKS server backed by a
-// real RSA key pair, so ZitadelVerifier's actual signature/issuer/audience/
+// real RSA key pair, so RauthyVerifier's actual signature/issuer/audience/
 // expiry verification logic is exercised end to end, not just its plumbing.
 type fakeOIDCProvider struct {
 	server     *httptest.Server
@@ -23,7 +23,7 @@ type fakeOIDCProvider struct {
 	// advertisedIssuer is what the discovery document's "issuer" field
 	// reports. It defaults to the server's own URL; tests exercising the
 	// discoveryURL != issuerURL split set it to a different value to mimic
-	// Zitadel advertising its externally-configured issuer even though it
+	// Rauthy advertising its externally-configured issuer even though it
 	// was reached at an internal address.
 	advertisedIssuer string
 }
@@ -113,18 +113,18 @@ func (p *fakeOIDCProvider) sign(t *testing.T, claims testClaims, useWrongKey boo
 
 const testAudience = "core-api"
 
-func TestZitadelVerifierAcceptsValidToken(t *testing.T) {
+func TestRauthyVerifierAcceptsValidToken(t *testing.T) {
 	provider := newFakeOIDCProvider(t)
 	ctx := t.Context()
 
-	verifier, err := NewZitadelVerifier(ctx, provider.server.URL, provider.server.URL, testAudience)
+	verifier, err := NewRauthyVerifier(ctx, provider.server.URL, provider.server.URL, testAudience)
 	if err != nil {
-		t.Fatalf("NewZitadelVerifier returned error: %v", err)
+		t.Fatalf("NewRauthyVerifier returned error: %v", err)
 	}
 
 	token := provider.sign(t, testClaims{
 		Issuer:   provider.server.URL,
-		Subject:  "zitadel-subject-123",
+		Subject:  "rauthy-subject-123",
 		Audience: testAudience,
 		Expiry:   time.Now().Add(time.Hour).Unix(),
 		IssuedAt: time.Now().Unix(),
@@ -134,23 +134,23 @@ func TestZitadelVerifierAcceptsValidToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify returned error: %v", err)
 	}
-	if subject != "zitadel-subject-123" {
-		t.Fatalf("subject = %q, want %q", subject, "zitadel-subject-123")
+	if subject != "rauthy-subject-123" {
+		t.Fatalf("subject = %q, want %q", subject, "rauthy-subject-123")
 	}
 }
 
-func TestZitadelVerifierRejectsExpiredToken(t *testing.T) {
+func TestRauthyVerifierRejectsExpiredToken(t *testing.T) {
 	provider := newFakeOIDCProvider(t)
 	ctx := t.Context()
 
-	verifier, err := NewZitadelVerifier(ctx, provider.server.URL, provider.server.URL, testAudience)
+	verifier, err := NewRauthyVerifier(ctx, provider.server.URL, provider.server.URL, testAudience)
 	if err != nil {
-		t.Fatalf("NewZitadelVerifier returned error: %v", err)
+		t.Fatalf("NewRauthyVerifier returned error: %v", err)
 	}
 
 	token := provider.sign(t, testClaims{
 		Issuer:   provider.server.URL,
-		Subject:  "zitadel-subject-123",
+		Subject:  "rauthy-subject-123",
 		Audience: testAudience,
 		Expiry:   time.Now().Add(-time.Hour).Unix(),
 		IssuedAt: time.Now().Add(-2 * time.Hour).Unix(),
@@ -161,18 +161,18 @@ func TestZitadelVerifierRejectsExpiredToken(t *testing.T) {
 	}
 }
 
-func TestZitadelVerifierRejectsWrongAudience(t *testing.T) {
+func TestRauthyVerifierRejectsWrongAudience(t *testing.T) {
 	provider := newFakeOIDCProvider(t)
 	ctx := t.Context()
 
-	verifier, err := NewZitadelVerifier(ctx, provider.server.URL, provider.server.URL, testAudience)
+	verifier, err := NewRauthyVerifier(ctx, provider.server.URL, provider.server.URL, testAudience)
 	if err != nil {
-		t.Fatalf("NewZitadelVerifier returned error: %v", err)
+		t.Fatalf("NewRauthyVerifier returned error: %v", err)
 	}
 
 	token := provider.sign(t, testClaims{
 		Issuer:   provider.server.URL,
-		Subject:  "zitadel-subject-123",
+		Subject:  "rauthy-subject-123",
 		Audience: "some-other-api",
 		Expiry:   time.Now().Add(time.Hour).Unix(),
 		IssuedAt: time.Now().Unix(),
@@ -183,18 +183,18 @@ func TestZitadelVerifierRejectsWrongAudience(t *testing.T) {
 	}
 }
 
-func TestZitadelVerifierRejectsWrongSigningKey(t *testing.T) {
+func TestRauthyVerifierRejectsWrongSigningKey(t *testing.T) {
 	provider := newFakeOIDCProvider(t)
 	ctx := t.Context()
 
-	verifier, err := NewZitadelVerifier(ctx, provider.server.URL, provider.server.URL, testAudience)
+	verifier, err := NewRauthyVerifier(ctx, provider.server.URL, provider.server.URL, testAudience)
 	if err != nil {
-		t.Fatalf("NewZitadelVerifier returned error: %v", err)
+		t.Fatalf("NewRauthyVerifier returned error: %v", err)
 	}
 
 	token := provider.sign(t, testClaims{
 		Issuer:   provider.server.URL,
-		Subject:  "zitadel-subject-123",
+		Subject:  "rauthy-subject-123",
 		Audience: testAudience,
 		Expiry:   time.Now().Add(time.Hour).Unix(),
 		IssuedAt: time.Now().Unix(),
@@ -205,27 +205,27 @@ func TestZitadelVerifierRejectsWrongSigningKey(t *testing.T) {
 	}
 }
 
-// TestZitadelVerifierSupportsDiscoveryIssuerSplit proves the actual reason
-// NewZitadelVerifier takes separate discoveryURL and issuerURL arguments:
-// core-api reaches Zitadel over one address (e.g. an internal Docker Compose
-// hostname) while Zitadel's discovery document advertises a different
+// TestRauthyVerifierSupportsDiscoveryIssuerSplit proves the actual reason
+// NewRauthyVerifier takes separate discoveryURL and issuerURL arguments:
+// core-api reaches Rauthy over one address (e.g. an internal Docker Compose
+// hostname) while Rauthy's discovery document advertises a different
 // externally-configured issuer (e.g. localhost or a LAN IP). Without
 // oidc.InsecureIssuerURLContext, discovery would fail because the fetched
 // document's "issuer" field wouldn't match the URL it was fetched from.
-func TestZitadelVerifierSupportsDiscoveryIssuerSplit(t *testing.T) {
+func TestRauthyVerifierSupportsDiscoveryIssuerSplit(t *testing.T) {
 	provider := newFakeOIDCProvider(t)
 	const externalIssuer = "http://external.example.com"
 	provider.advertisedIssuer = externalIssuer
 	ctx := t.Context()
 
-	verifier, err := NewZitadelVerifier(ctx, provider.server.URL, externalIssuer, testAudience)
+	verifier, err := NewRauthyVerifier(ctx, provider.server.URL, externalIssuer, testAudience)
 	if err != nil {
-		t.Fatalf("NewZitadelVerifier returned error: %v", err)
+		t.Fatalf("NewRauthyVerifier returned error: %v", err)
 	}
 
 	token := provider.sign(t, testClaims{
 		Issuer:   externalIssuer,
-		Subject:  "zitadel-subject-123",
+		Subject:  "rauthy-subject-123",
 		Audience: testAudience,
 		Expiry:   time.Now().Add(time.Hour).Unix(),
 		IssuedAt: time.Now().Unix(),
@@ -235,28 +235,28 @@ func TestZitadelVerifierSupportsDiscoveryIssuerSplit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify returned error: %v", err)
 	}
-	if subject != "zitadel-subject-123" {
-		t.Fatalf("subject = %q, want %q", subject, "zitadel-subject-123")
+	if subject != "rauthy-subject-123" {
+		t.Fatalf("subject = %q, want %q", subject, "rauthy-subject-123")
 	}
 }
 
-// TestZitadelVerifierRejectsMismatchedTokenIssuer confirms the split doesn't
+// TestRauthyVerifierRejectsMismatchedTokenIssuer confirms the split doesn't
 // disable issuer checking entirely: a token claiming an issuer other than
 // the configured issuerURL must still be rejected.
-func TestZitadelVerifierRejectsMismatchedTokenIssuer(t *testing.T) {
+func TestRauthyVerifierRejectsMismatchedTokenIssuer(t *testing.T) {
 	provider := newFakeOIDCProvider(t)
 	const externalIssuer = "http://external.example.com"
 	provider.advertisedIssuer = externalIssuer
 	ctx := t.Context()
 
-	verifier, err := NewZitadelVerifier(ctx, provider.server.URL, externalIssuer, testAudience)
+	verifier, err := NewRauthyVerifier(ctx, provider.server.URL, externalIssuer, testAudience)
 	if err != nil {
-		t.Fatalf("NewZitadelVerifier returned error: %v", err)
+		t.Fatalf("NewRauthyVerifier returned error: %v", err)
 	}
 
 	token := provider.sign(t, testClaims{
 		Issuer:   "http://attacker.example.com",
-		Subject:  "zitadel-subject-123",
+		Subject:  "rauthy-subject-123",
 		Audience: testAudience,
 		Expiry:   time.Now().Add(time.Hour).Unix(),
 		IssuedAt: time.Now().Unix(),

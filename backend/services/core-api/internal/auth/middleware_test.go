@@ -83,7 +83,7 @@ func TestMiddlewareUnknownSubject(t *testing.T) {
 }
 
 func TestMiddlewareSuccessAttachesUser(t *testing.T) {
-	want := &domain.User{ID: "u1", TenantID: "t1", ZitadelSubjectID: "sub-1", Role: domain.RoleVendor}
+	want := &domain.User{ID: "u1", TenantID: "t1", RauthySubjectID: "sub-1", Role: domain.RoleVendor}
 	users := newTestUsers(t, want)
 
 	var gotUser *domain.User

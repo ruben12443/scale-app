@@ -20,12 +20,18 @@ class AppConfig {
     defaultValue: 'http://localhost:8082',
   );
 
-  static const zitadelIssuer = String.fromEnvironment(
-    'ZITADEL_ISSUER',
-    defaultValue: 'http://localhost:8080',
+  /// Rauthy's issuer, including its `/auth/v1` path prefix (e.g.
+  /// `http://localhost:8080/auth/v1`) — replaced Zitadel; see
+  /// backend/services/core-api/README.md for the equivalent server-side
+  /// config.
+  static const rauthyIssuer = String.fromEnvironment(
+    'RAUTHY_ISSUER',
+    defaultValue: 'http://localhost:8080/auth/v1',
   );
 
-  static const zitadelClientId = String.fromEnvironment('ZITADEL_CLIENT_ID');
+  /// Must match the static client registered in
+  /// rauthy-bootstrap/clients.json's `"id"` field.
+  static const rauthyClientId = String.fromEnvironment('RAUTHY_CLIENT_ID');
 
   /// Android/iOS/macOS/desktop use a fixed custom URL scheme: the OS hands
   /// the redirect straight back to this app. Deliberately not the app's
@@ -35,9 +41,10 @@ class AppConfig {
   /// `manifestPlaceholders["oidcRedirectScheme"]` in
   /// android/app/build.gradle.kts, which must match this value; iOS needs
   /// no Info.plist entry (ASWebAuthenticationSession matches the scheme at
-  /// runtime, not via a registered URL type).
+  /// runtime, not via a registered URL type). Either way, this exact value
+  /// must also be listed in rauthy-bootstrap/clients.json's redirect_uris.
   static const _nativeRedirectUrl = String.fromEnvironment(
-    'ZITADEL_REDIRECT_URL',
+    'RAUTHY_REDIRECT_URL',
     defaultValue: 'com.scaleapp.stallhand:/callback',
   );
 
@@ -47,19 +54,20 @@ class AppConfig {
   /// resolves against wherever the app actually got served from
   /// (`--web-hostname`/`--web-port`, a LAN IP for phone testing, or
   /// whatever host `mobile-web`'s nginx ends up on) instead of a fixed
-  /// origin baked in at build time.
+  /// origin baked in at build time. The resolved origin must also be listed
+  /// in rauthy-bootstrap/clients.json's redirect_uris.
   static const _webRedirectPath = String.fromEnvironment(
-    'ZITADEL_WEB_REDIRECT_PATH',
+    'RAUTHY_WEB_REDIRECT_PATH',
     defaultValue: 'redirect.html',
   );
 
-  static Uri get zitadelRedirectUri =>
+  static Uri get rauthyRedirectUri =>
       kIsWeb ? _resolveWebUri(_webRedirectPath) : Uri.parse(_nativeRedirectUrl);
 
   /// Reuses the same redirect page for post-logout on web; native platforms
   /// don't currently do RP-initiated logout (see AuthService), so this is
   /// only ever read on web.
-  static Uri get zitadelWebPostLogoutRedirectUri =>
+  static Uri get rauthyWebPostLogoutRedirectUri =>
       _resolveWebUri(_webRedirectPath);
 
   static Uri _resolveWebUri(String path) {

@@ -9,9 +9,11 @@ import "time"
 // Tenant is a market vendor business. Each tenant has its own users, product
 // catalog, and transaction history.
 //
-// ID doubles as the corresponding Zitadel organization ID: a tenant here is
-// exactly one Zitadel org, so creating a vendor user only needs an org ID to
-// scope it to, with no separate mapping table.
+// Tenant scoping is purely local to core-api's own database — Rauthy (unlike
+// Zitadel, which this replaced) has no organization/multi-tenancy concept of
+// its own, so it just issues one flat set of user identities and core-api is
+// solely responsible for which tenant a given RauthySubjectID belongs to,
+// via the User record that links them.
 type Tenant struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
