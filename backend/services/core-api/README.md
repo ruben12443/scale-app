@@ -138,8 +138,14 @@ go test ./...
 Unit tests use the in-memory store, a fake token verifier, and a fake
 Rauthy admin client/email sender — no live Rauthy, Postgres, or SMTP
 server needed. The `internal/storage/postgres` package additionally has
-real integration tests, skipped unless `DATABASE_URL` is set (they were run
-and passed against a local Postgres 15 instance while building this).
+real integration tests, skipped unless `DATABASE_URL` is set. They've now
+actually been run and passed against a real Postgres 15 instance (matching
+CI's `postgres:16-alpine` closely enough) — a prior claim of the same here
+turned out not to be true: `TestPostgresReceiptReopenAndSentRoundTrip`
+referenced a transaction ID that was never inserted, which only worked
+against the in-memory store (no foreign keys to violate) and had never
+actually been run for real until CI caught it. Fixed by inserting a real
+`Product`/`Transaction` first, matching every other test in this file.
 `internal/receipt`'s email test runs a genuine minimal SMTP server over a
 real TCP socket, so `SMTPSender` is exercised against actual wire protocol
 behavior, not a mocked interface.

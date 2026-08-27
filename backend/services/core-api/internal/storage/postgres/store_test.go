@@ -187,9 +187,21 @@ func TestPostgresReceiptReopenAndSentRoundTrip(t *testing.T) {
 	if err := s.Users().Create(ctx, user); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	product := &domain.Product{ID: "p-" + t.Name(), TenantID: tenant.ID, Name: "Eggs (dozen)", PricingType: domain.PricingPerPiece, UnitPriceCents: 550, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	if err := s.Products().Create(ctx, product); err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+	tx := &domain.Transaction{
+		ID: "tx-" + t.Name(), TenantID: tenant.ID, UserID: user.ID, ProductID: product.ID, ProductName: product.Name,
+		PricingType: domain.PricingPerPiece, Quantity: 3, UnitPriceCents: 550, TotalPriceCents: 1650,
+		CreatedAt: time.Now().UTC().Truncate(time.Microsecond),
+	}
+	if err := s.Transactions().Create(ctx, tx); err != nil {
+		t.Fatalf("create transaction: %v", err)
+	}
 
 	receipt := &domain.Receipt{ID: "r-" + t.Name(), TenantID: tenant.ID, UserID: user.ID, Status: domain.ReceiptStatusDraft, CreatedAt: time.Now().UTC().Truncate(time.Microsecond)}
-	_ = receipt.AddLine("tx-1")
+	_ = receipt.AddLine(tx.ID)
 	if err := s.Receipts().Create(ctx, receipt); err != nil {
 		t.Fatalf("create receipt: %v", err)
 	}
