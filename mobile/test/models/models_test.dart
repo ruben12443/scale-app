@@ -252,6 +252,29 @@ void main() {
       expect(s.connected, isFalse);
       expect(s.lastError, 'connection refused');
     });
+
+    test('fromJson parses a claim held by another vendor', () {
+      final s = ScaleStatus.fromJson({
+        'id': 'scale-1',
+        'kind': 'dialog_raw_tcp',
+        'connected': true,
+        'held_by_id': 'vendor-2',
+        'held_by_name': 'Bob',
+      });
+      expect(s.heldById, 'vendor-2');
+      expect(s.heldByName, 'Bob');
+      expect(s.heldByOther('vendor-1'), isTrue);
+      expect(s.heldByOther('vendor-2'), isFalse);
+    });
+
+    test('heldByOther is false when no one holds a claim', () {
+      final s = ScaleStatus.fromJson({
+        'id': 'scale-1',
+        'kind': 'dialog_raw_tcp',
+        'connected': true,
+      });
+      expect(s.heldByOther('vendor-1'), isFalse);
+    });
   });
 
   group('ScaleWeighResult', () {

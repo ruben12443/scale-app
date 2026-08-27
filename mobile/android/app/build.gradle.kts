@@ -27,6 +27,12 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Read by oidc_android's own manifest (merged into this app's) to
+        // register the redirect activity for the custom-scheme OIDC
+        // callback — see lib/config.dart's zitadelRedirectUri (native
+        // branch) for the matching scheme. Not the app's own applicationId
+        // above: a URI scheme can't contain the `_` that's in it.
+        manifestPlaceholders["oidcRedirectScheme"] = "com.scaleapp.stallhand"
     }
 
     buildTypes {

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -20,10 +21,13 @@ class ScaleApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authService = AuthService(
-      const AuthConfig(
+      AuthConfig(
         issuer: AppConfig.zitadelIssuer,
         clientId: AppConfig.zitadelClientId,
-        redirectUrl: AppConfig.zitadelRedirectUrl,
+        redirectUri: AppConfig.zitadelRedirectUri,
+        postLogoutRedirectUri: kIsWeb
+            ? AppConfig.zitadelWebPostLogoutRedirectUri
+            : null,
       ),
     );
     return ChangeNotifierProvider(

@@ -10,11 +10,14 @@ Flutter app for scale-app's vendor-facing mobile client.
 - `lib/api/` — `CoreApiClient` (core-api's HTTP surface) and
   `ScaleGatewayClient` (the local scale-gateway's HTTP surface), both
   constructed with an injectable `http.Client` for testing.
-- `lib/auth/` — `AuthService` wraps `flutter_appauth`'s OIDC Authorization
-  Code + PKCE flow against Zitadel; `AuthState` (a `ChangeNotifier`) holds
-  the session, persists the refresh token in secure storage, and refreshes
-  the access token on demand (`ensureFreshAccessToken`) rather than the API
-  client racing a plain in-memory value against expiry.
+- `lib/auth/` — `AuthService` wraps an `OidcUserManager` (the `oidc`
+  package — an OpenID-certified relying party with real Android/iOS/macOS/
+  web/desktop support, unlike its predecessor `flutter_appauth`, which had
+  no web implementation at all) for the Authorization Code + PKCE flow
+  against Zitadel. The manager owns session persistence and background
+  token refresh itself; `AuthState` (a `ChangeNotifier`) just mirrors its
+  `userChanges` stream and exposes `ensureFreshAccessToken()` for the API
+  client to call before each request.
 - `lib/state/receipt_state.dart` — the caller's current draft receipt,
   observable so any screen reflects it without re-fetching.
 - `lib/screens/` — `LoginScreen`, `HomeShell` (bottom-nav shell), 
@@ -46,6 +49,28 @@ Flutter app for scale-app's vendor-facing mobile client.
 - Product management (create/edit) isn't in this app — the original spec
   only calls for *picking* a product with its existing price, not managing
   the catalog from the phone.
+- **Only one vendor can be on a scale at a time.** Tapping a scale on
+  `ScalesScreen` claims it (`POST /scales/{id}/claim` — see
+  `backend/services/scale-gateway/README.md`); a scale another vendor
+  already holds shows who's using it and isn't tappable. `SellScreen` holds
+  that claim for as long as it's open, renewing it every 5s
+  (`sellScreenClaimRenewalInterval`) — well inside the gateway's own 20s
+  claim TTL — and releases it as soon as the vendor is done or has stopped
+  paying attention:
+  - adding a line to the receipt jumps straight back to `ScalesScreen`
+    rather than staying on the sell flow, since that's normally the start
+    of the next sale;
+  - `sellScreenInactivityTimeout` (7s) with no touch on the screen also
+    bounces back to `ScalesScreen`, so a vendor who wanders off doesn't
+    block the scale for everyone else;
+  - the app backgrounding — including the phone's screen locking — releases
+    the claim immediately (via `WidgetsBindingObserver`) rather than waiting
+    for it to expire, and resuming always lands back on `ScalesScreen`
+    rather than resuming mid-sale.
+  
+  The claim is a courtesy reservation identified by the vendor's core-api
+  user id, not an auth boundary — scale-gateway trusts callers on the local
+  network, same as everything else it does.
 
 ## Verified vs. not
 
@@ -62,12 +87,19 @@ verified, consistent with the other integrations flagged elsewhere in this
 repo:
 
 - **The Zitadel OIDC login flow itself.** `AuthService`/`AuthState` are
-  built against `flutter_appauth`'s real, verified API (checked against
-  its source, not guessed), and their pure logic
-  (`AuthSession.isExpired`, `AuthState`'s session/refresh-token handling)
-  is unit tested with a fake `AuthService` — but the actual browser
-  redirect + token exchange against a live Zitadel instance has not been
-  exercised, since no live instance was available while building this.
+  built against the `oidc` package's real, verified API (checked against
+  its source, not guessed — including copying its `web/redirect.html`
+  verbatim, as its own docs require), and `AuthState`'s session-mirroring
+  logic is unit tested against a fake `AuthService` (constructing real,
+  if unverified, `OidcUser`/`OidcToken` objects rather than a bespoke
+  session type) — but the actual browser redirect + token exchange against
+  a live Zitadel instance has not been exercised, since no live instance
+  or `ZITADEL_CLIENT_ID` was available while building this. The token
+  expiry/refresh logic itself is no longer ours to unit-test at all — it's
+  now inside the `oidc` package (OpenID-certified, with its own test
+  suite), which is arguably more trustworthy than the hand-rolled version
+  it replaced, but it does mean this repo has one less unit it can test
+  directly.
 - **Live device/emulator rendering.** No Android/iOS SDK or Chrome is
   available in the environment this was built in, so nothing has been
   visually confirmed on a device, simulator, or in a browser — only
@@ -77,16 +109,90 @@ repo:
   `POST /receipts/{id}/payment` exist and are tested server-side, but the
   mobile-side Stripe Terminal SDK integration (using the connection token
   to actually collect a card-present payment) isn't built yet.
+- **`SellScreen`'s claim renewal, inactivity timeout, and app-lifecycle
+  handling.** The claim/release HTTP calls they drive are unit tested at
+  the `ScaleGatewayClient` level, but the `Timer`-, `AnimationController`-,
+  and `WidgetsBindingObserver`-based logic in `SellScreen` itself (renew
+  every 5s, bounce back when the on-screen countdown bar empties at 7s,
+  release on backgrounding/screen lock) has no widget test — this repo
+  doesn't have widget tests for any screen yet, and adding the first one
+  was out of scope here. `flutter analyze` and `flutter test` pass; a
+  native Linux release build wasn't re-verified in the environment that
+  added this, since it lacked `clang`/`cmake`/`ninja`.
+- **Android's native redirect wiring.** `android/app/build.gradle.kts` now
+  sets `manifestPlaceholders["oidcRedirectScheme"]`, which `oidc_android`
+  merges into the app's manifest to register the redirect-catching
+  activity — this was never wired up before (there was no manifest
+  placeholder for `flutter_appauth` either, a pre-existing gap this closed
+  in passing rather than one this change introduced). iOS needs no
+  equivalent Info.plist entry: `ASWebAuthenticationSession` matches the
+  callback scheme at runtime. Neither has been exercised on a real device.
 
 ## Configuration
 
 Overridable at build/run time via `--dart-define` (see `lib/config.dart`
 for the full list and defaults, which point at the local docker-compose
 stack): `CORE_API_BASE_URL`, `SCALE_GATEWAY_BASE_URL`, `ZITADEL_ISSUER`,
-`ZITADEL_CLIENT_ID`, `ZITADEL_REDIRECT_URL`.
+`ZITADEL_CLIENT_ID`, `ZITADEL_REDIRECT_URL` (native only — the custom-scheme
+callback), `ZITADEL_WEB_REDIRECT_PATH` (web only — a path resolved against
+wherever the app is actually served from; defaults to `redirect.html` and
+rarely needs overriding).
 
 Note `SCALE_GATEWAY_BASE_URL` is a single, build-time value — in reality
 each stall has its own scale-gateway instance on its own local network, so
 a real deployment would need this to be configurable per-session (e.g. a
 settings screen or QR-code pairing) rather than baked in. Out of scope for
 this first draft.
+
+## Progressive Web App
+
+`web/` (added via `flutter create --platforms=web .`) makes this a
+standard installable PWA: `web/manifest.json` (name "Stallhand", the
+market-green/paper theme and background colors, `display: standalone`)
+plus a maskable + regular icon set at `web/icons/` and `web/favicon.png`
+(currently a simple generated scale-plate glyph on the brand green —
+**a placeholder, not a designed logo**; swap these before this goes in
+front of real vendors). `flutter build web` also emits
+`flutter_service_worker.js` automatically, which Flutter's own
+`flutter_bootstrap.js` loader registers — no extra wiring needed for that
+part.
+
+**How a vendor actually gets the app**: they visit the page in their
+phone's browser and use the browser's own "Add to Home Screen" / install
+prompt — there's no app store listing and nothing to sideload. Locally,
+`docker-compose.yml`'s `mobile-web` service builds and serves exactly this
+(`mobile/Dockerfile`, multi-stage: `flutter build web` then plain nginx)
+on port 8083, using `ZITADEL_DOMAIN` the same way `zitadel-login` already
+does — whatever host (a LAN IP for a phone, `localhost` for a desktop
+browser) the vendor's device will actually reach this stack on.
+
+Login itself now works the same way on web as everywhere else — see
+`lib/auth/`'s notes above on replacing `flutter_appauth` (which had no web
+support at all) with the `oidc` package. `web/redirect.html` (copied
+verbatim from that package, per its own instructions — re-copy it if the
+package is ever upgraded) is the page the Zitadel redirect actually lands
+on. Two things this local setup does **not** yet cover, both pre-existing
+gaps rather than new ones:
+
+- **A Zitadel OIDC client for the mobile app.** `.env` has no
+  `ZITADEL_CLIENT_ID` today, for any platform — one needs to be
+  provisioned in Zitadel, with the web build's actual origin (e.g.
+  `http://<lan-ip>:8083/redirect.html`) registered as an allowed redirect
+  URI, before login works anywhere, web included.
+- **Production hosting.** `mobile-web` is a local/dev convenience — actual
+  distribution to vendors needs real HTTPS and a real domain (browsers
+  gate PWA installability on HTTPS outside of `localhost`), which is
+  infrastructure this repo doesn't set up.
+
+**Login on web is currently broken regardless of the above** — see
+"Verified vs. not": `flutter_appauth` (the package `AuthService` wraps)
+declares no web platform implementation at all, so `authorizeAndExchangeCode`
+throws `MissingPluginException` there. The rest of the app — installing
+the PWA, and the whole Scales/Sell/Receipt flow once past login — is
+unaffected and works identically to mobile; only the login button itself
+needs a web-specific fix (a different OIDC flow for that one platform, or
+replacing `flutter_appauth` with a package that has real web support) to
+close the gap. Confirmed by inspecting `flutter_appauth`'s pubspec
+(`platforms:` lists only `android`/`ios`/`macos`) and by a successful
+`flutter build web` that would fail at *runtime*, not compile time, the
+moment login is attempted.

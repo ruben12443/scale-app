@@ -1,20 +1,28 @@
 import 'package:flutter/material.dart';
 
+import '../api/api_exception.dart';
 import '../api/scale_gateway_client.dart';
 import '../models/scale_status.dart';
 
 /// Connection status and every scale available on the local network,
 /// talking to the scale-gateway service (see
-/// backend/services/scale-gateway/README.md). Tapping a connected scale
-/// starts the sell flow for it. A disconnected scale should be rare, so
-/// its troubleshooting hint stays collapsed until tapped.
+/// backend/services/scale-gateway/README.md). Tapping a connected, free
+/// scale claims it (see `POST /scales/{id}/claim`) and starts the sell flow
+/// for it; a scale another vendor already holds shows who's using it instead
+/// of being tappable, so two vendors can never end up on the same scale at
+/// once. A disconnected scale should be rare, so its troubleshooting hint
+/// stays collapsed until tapped.
 class ScalesScreen extends StatefulWidget {
   final ScaleGatewayClient client;
+  final String currentUserId;
+  final String currentUserName;
   final void Function(ScaleStatus scale) onSelectScale;
 
   const ScalesScreen({
     super.key,
     required this.client,
+    required this.currentUserId,
+    required this.currentUserName,
     required this.onSelectScale,
   });
 
@@ -26,6 +34,7 @@ class _ScalesScreenState extends State<ScalesScreen> {
   late Future<List<ScaleStatus>> _future;
   final Set<String> _expanded = {};
   final Set<String> _retrying = {};
+  String? _claiming;
 
   @override
   void initState() {
@@ -41,6 +50,29 @@ class _ScalesScreenState extends State<ScalesScreen> {
     setState(() {
       if (!_expanded.remove(scaleId)) _expanded.add(scaleId);
     });
+  }
+
+  Future<void> _selectScale(ScaleStatus scale) async {
+    setState(() => _claiming = scale.id);
+    try {
+      await widget.client.claimScale(
+        scale.id,
+        holderId: widget.currentUserId,
+        holderName: widget.currentUserName,
+      );
+      if (!mounted) return;
+      widget.onSelectScale(scale);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      final message = e.statusCode == 409
+          ? '${scale.id} is already in use'
+          : 'Could not claim ${scale.id}: ${e.message}';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+      _refresh();
+    } finally {
+      if (mounted) setState(() => _claiming = null);
+    }
   }
 
   Future<void> _retry(String scaleId) async {
@@ -89,15 +121,30 @@ class _ScalesScreenState extends State<ScalesScreen> {
             itemBuilder: (context, i) {
               final scale = scales[i];
               if (scale.connected) {
+                final heldByOther = scale.heldByOther(widget.currentUserId);
+                final claiming = _claiming == scale.id;
                 return ListTile(
-                  leading: const Icon(
+                  leading: Icon(
                     Icons.circle,
                     size: 12,
-                    color: Colors.green,
+                    color: heldByOther ? Colors.orange : Colors.green,
                   ),
                   title: Text(scale.id),
-                  subtitle: const Text('Connected'),
-                  onTap: () => widget.onSelectScale(scale),
+                  subtitle: Text(
+                    heldByOther
+                        ? 'In use by ${scale.heldByName ?? scale.heldById}'
+                        : 'Connected',
+                  ),
+                  trailing: claiming
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : (heldByOther ? const Icon(Icons.lock_outline) : null),
+                  onTap: heldByOther || claiming
+                      ? null
+                      : () => _selectScale(scale),
                 );
               }
 

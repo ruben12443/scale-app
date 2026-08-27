@@ -1,74 +1,57 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:oidc/oidc.dart';
 
 import '../models/user.dart';
 import 'auth_service.dart';
 
-/// App-wide login state: the current Zitadel session and the corresponding
-/// core-api user record (tenant/role/display name, from GET /me).
-///
-/// The refresh token is persisted in secure storage so a restart doesn't
-/// force a fresh login; the access token itself is kept in memory only.
+/// App-wide login state: the current Zitadel session (via [AuthService]/
+/// `OidcUserManager`, which owns persistence and refresh) and the
+/// corresponding core-api user record (tenant/role/display name, from
+/// GET /me).
 class AuthState extends ChangeNotifier {
-  static const _refreshTokenKey = 'zitadel_refresh_token';
-
   final AuthService _authService;
-  final FlutterSecureStorage _storage;
+  StreamSubscription<OidcUser?>? _sub;
 
-  AuthSession? _session;
+  OidcUser? _oidcUser;
   AppUser? currentUser;
 
-  AuthState(this._authService, {FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+  AuthState(this._authService) {
+    _sub = _authService.userChanges.listen((user) {
+      _oidcUser = user;
+      if (user == null) currentUser = null;
+      notifyListeners();
+    });
+  }
 
-  bool get isLoggedIn => _session != null && currentUser != null;
-  String? get accessToken => _session?.accessToken;
+  bool get isLoggedIn => _oidcUser != null && currentUser != null;
+  String? get accessToken => _oidcUser?.token.accessToken;
 
-  /// Attempts to restore a session from a stored refresh token (e.g. on app
+  /// Attempts to restore a session from secure storage (e.g. on app
   /// launch). Returns true if a session was restored; the caller still
   /// needs to fetch the user profile (see main.dart) to complete login.
   Future<bool> tryRestoreSession() async {
-    final refreshToken = await _storage.read(key: _refreshTokenKey);
-    if (refreshToken == null) return false;
-    try {
-      _session = await _authService.refresh(refreshToken);
-      await _persistRefreshToken();
-      notifyListeners();
-      return true;
-    } catch (_) {
-      // Stored token no longer works (revoked, expired past its own
-      // lifetime, etc.) - fall through to a normal interactive login.
-      await _storage.delete(key: _refreshTokenKey);
-      return false;
-    }
+    await _authService.init();
+    _oidcUser = _authService.currentUser;
+    if (_oidcUser != null) notifyListeners();
+    return _oidcUser != null;
   }
 
   Future<void> login() async {
-    _session = await _authService.login();
-    await _persistRefreshToken();
+    await _authService.login();
+    _oidcUser = _authService.currentUser;
     notifyListeners();
   }
 
   /// Ensures the access token isn't about to expire, refreshing it first if
   /// needed. Call before making an API request.
   Future<String> ensureFreshAccessToken() async {
-    final session = _session;
-    if (session == null) {
+    final token = await _authService.ensureFreshAccessToken();
+    if (token == null) {
       throw StateError('not logged in');
     }
-    if (!session.isExpired()) {
-      return session.accessToken;
-    }
-    final refreshToken = session.refreshToken;
-    if (refreshToken == null) {
-      throw StateError(
-        'access token expired and no refresh token is available',
-      );
-    }
-    _session = await _authService.refresh(refreshToken);
-    await _persistRefreshToken();
-    notifyListeners();
-    return _session!.accessToken;
+    return token;
   }
 
   void setCurrentUser(AppUser user) {
@@ -77,16 +60,15 @@ class AuthState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    _session = null;
+    await _authService.logout();
+    _oidcUser = null;
     currentUser = null;
-    await _storage.delete(key: _refreshTokenKey);
     notifyListeners();
   }
 
-  Future<void> _persistRefreshToken() async {
-    final refreshToken = _session?.refreshToken;
-    if (refreshToken != null) {
-      await _storage.write(key: _refreshTokenKey, value: refreshToken);
-    }
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
   }
 }

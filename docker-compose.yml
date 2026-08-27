@@ -142,6 +142,22 @@ services:
       zitadel:
         condition: service_healthy
 
+  # Serves the vendor app as an installable PWA (see mobile/README.md) so a
+  # vendor can just visit http://<this host>:8083 on their phone and "Add to
+  # Home Screen" — no app store, no sideloading an APK. ZITADEL_DOMAIN
+  # doubles here as "whatever host the vendor's phone will reach this stack
+  # on", same as it already does for zitadel-login above.
+  mobile-web:
+    build:
+      context: ./mobile
+      args:
+        CORE_API_BASE_URL: "http://${ZITADEL_DOMAIN}:8081"
+        SCALE_GATEWAY_BASE_URL: "http://${ZITADEL_DOMAIN}:8082"
+        ZITADEL_ISSUER: "http://${ZITADEL_DOMAIN}:8080"
+        ZITADEL_CLIENT_ID: ${ZITADEL_CLIENT_ID}
+    ports:
+      - "8083:80"
+
 volumes:
   postgres-data:
   zitadel-db-data:

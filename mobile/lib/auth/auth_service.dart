@@ -1,4 +1,6 @@
-import 'package:flutter_appauth/flutter_appauth.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:oidc/oidc.dart';
+import 'package:oidc_default_store/oidc_default_store.dart';
 
 /// Zitadel OIDC configuration. There's one login flow for every user —
 /// admin vs. vendor is a role on the resulting core-api user record (see
@@ -6,87 +8,81 @@ import 'package:flutter_appauth/flutter_appauth.dart';
 class AuthConfig {
   final String issuer;
   final String clientId;
-  final String redirectUrl;
+  final Uri redirectUri;
+  final Uri? postLogoutRedirectUri;
   final List<String> scopes;
 
   const AuthConfig({
     required this.issuer,
     required this.clientId,
-    required this.redirectUrl,
+    required this.redirectUri,
+    this.postLogoutRedirectUri,
     this.scopes = const ['openid', 'profile', 'email', 'offline_access'],
   });
 }
 
-/// The tokens from a successful login/refresh.
-class AuthSession {
-  final String accessToken;
-  final String? refreshToken;
-  final DateTime? accessTokenExpiration;
-
-  const AuthSession({
-    required this.accessToken,
-    this.refreshToken,
-    this.accessTokenExpiration,
-  });
-
-  /// True once we're within [skew] of expiry (or past it), so callers
-  /// refresh a little early rather than racing a request against expiry.
-  bool isExpired({Duration skew = const Duration(seconds: 30)}) {
-    final expiry = accessTokenExpiration;
-    if (expiry == null) return false;
-    return DateTime.now().isAfter(expiry.subtract(skew));
-  }
-}
-
-/// Wraps flutter_appauth's OIDC Authorization Code + PKCE flow against
-/// Zitadel. Not unit-testable beyond its pure logic (AuthSession.isExpired)
-/// without a live IdP and a real browser redirect — see the mobile README.
+/// Wraps an [OidcUserManager] (see the `oidc` package, an OpenID-certified
+/// relaying party that — unlike the flutter_appauth package this replaced —
+/// actually supports web as well as Android/iOS/macOS/desktop). The manager
+/// owns everything AuthState used to do by hand: opening the system browser
+/// (native) or navigating the page (web) for the Authorization Code + PKCE
+/// flow, persisting the session in secure storage, and keeping the access
+/// token fresh (automatic background refresh) — AuthState just mirrors
+/// [userChanges] rather than managing any of that itself.
+///
+/// Not unit-testable beyond AuthState's use of it (see the mobile README)
+/// without a live IdP and a real browser redirect.
 class AuthService {
-  final AuthConfig config;
-  final FlutterAppAuth _appAuth;
+  final OidcUserManager manager;
 
-  AuthService(this.config, {FlutterAppAuth? appAuth})
-    : _appAuth = appAuth ?? const FlutterAppAuth();
+  AuthService(AuthConfig config, {OidcUserManager? manager})
+    : manager = manager ?? _buildManager(config);
 
-  Future<AuthSession> login() async {
-    final result = await _appAuth.authorizeAndExchangeCode(
-      AuthorizationTokenRequest(
-        config.clientId,
-        config.redirectUrl,
-        issuer: config.issuer,
-        scopes: config.scopes,
+  static OidcUserManager _buildManager(AuthConfig config) {
+    final manager = OidcUserManager.lazy(
+      discoveryDocumentUri: OidcUtils.getOpenIdConfigWellKnownUri(
+        Uri.parse(config.issuer),
+      ),
+      // Zitadel's native/SPA clients are public (no client secret) — PKCE
+      // is what secures the code exchange instead.
+      clientCredentials: OidcClientAuthentication.none(
+        clientId: config.clientId,
+      ),
+      store: OidcDefaultStore(),
+      settings: OidcUserManagerSettings(
+        scope: config.scopes,
+        redirectUri: config.redirectUri,
+        postLogoutRedirectUri: config.postLogoutRedirectUri,
+        // Keeps a session usable (against the cached token) through a brief
+        // network drop instead of forcing a fresh login the moment a
+        // background refresh fails to reach Zitadel.
+        supportOfflineAuth: true,
       ),
     );
-    final accessToken = result.accessToken;
-    if (accessToken == null) {
-      throw StateError('Zitadel login did not return an access token');
+    final store = manager.store;
+    if (store is OidcDefaultStore) {
+      store.secureStorage = const FlutterSecureStorage();
     }
-    return AuthSession(
-      accessToken: accessToken,
-      refreshToken: result.refreshToken,
-      accessTokenExpiration: result.accessTokenExpirationDateTime,
-    );
+    return manager;
   }
 
-  Future<AuthSession> refresh(String refreshToken) async {
-    final result = await _appAuth.token(
-      TokenRequest(
-        config.clientId,
-        config.redirectUrl,
-        issuer: config.issuer,
-        refreshToken: refreshToken,
-        grantType: GrantType.refreshToken,
-        scopes: config.scopes,
-      ),
-    );
-    final accessToken = result.accessToken;
-    if (accessToken == null) {
-      throw StateError('Zitadel token refresh did not return an access token');
-    }
-    return AuthSession(
-      accessToken: accessToken,
-      refreshToken: result.refreshToken ?? refreshToken,
-      accessTokenExpiration: result.accessTokenExpirationDateTime,
-    );
-  }
+  /// Restores a persisted session (if any) from secure storage. Must be
+  /// called once before anything else on [manager].
+  Future<void> init() => manager.init();
+
+  /// Emits the current user (or null when logged out) on every change —
+  /// including ones AuthState didn't itself trigger, like a background
+  /// refresh failing outright.
+  Stream<OidcUser?> get userChanges => manager.userChanges();
+
+  OidcUser? get currentUser => manager.currentUser;
+
+  Future<OidcUser?> login() => manager.loginAuthorizationCodeFlow();
+
+  /// Returns an access token guaranteed fresh for at least a short margin,
+  /// refreshing first if needed — the manager coalesces concurrent callers
+  /// into a single refresh-token exchange. Returns null if not logged in.
+  Future<String?> ensureFreshAccessToken() => manager.getAccessToken();
+
+  Future<void> logout() => manager.logout();
 }

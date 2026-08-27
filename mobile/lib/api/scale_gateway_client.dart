@@ -29,17 +29,52 @@ class ScaleGatewayClient {
 
   Future<ScaleWeighResult> sendPrice(
     String scaleId,
-    int pricePerKgCents,
-  ) async {
+    int pricePerKgCents, {
+    required String holderId,
+  }) async {
     final resp = await _http.post(
       _uri('/scales/$scaleId/transactions'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'price_per_kg_cents': pricePerKgCents}),
+      body: jsonEncode({
+        'price_per_kg_cents': pricePerKgCents,
+        'holder_id': holderId,
+      }),
     );
     _checkStatus(resp);
     return ScaleWeighResult.fromJson(
       jsonDecode(resp.body) as Map<String, dynamic>,
     );
+  }
+
+  /// Claims exclusive use of a scale for [holderId], so no other vendor can
+  /// weigh on it at the same time. Re-claiming with the same [holderId] is a
+  /// no-op renewal that extends the claim; throws [ApiException] with
+  /// statusCode 409 if another vendor currently holds it.
+  Future<void> claimScale(
+    String scaleId, {
+    required String holderId,
+    String? holderName,
+  }) async {
+    final body = <String, String>{'holder_id': holderId};
+    if (holderName != null) body['holder_name'] = holderName;
+    final resp = await _http.post(
+      _uri('/scales/$scaleId/claim'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+    _checkStatus(resp);
+  }
+
+  /// Releases [holderId]'s claim on a scale, if it still holds one. Always
+  /// succeeds — releasing is a best-effort cleanup action, not something
+  /// callers need to retry or handle failure for.
+  Future<void> releaseScale(String scaleId, {required String holderId}) async {
+    final resp = await _http.post(
+      _uri('/scales/$scaleId/release'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'holder_id': holderId}),
+    );
+    _checkStatus(resp);
   }
 
   void _checkStatus(http.Response resp) {

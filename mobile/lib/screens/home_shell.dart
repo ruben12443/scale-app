@@ -29,13 +29,15 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  void _openSellScreen(ScaleStatus scale) {
+  void _openSellScreen(ScaleStatus scale, String holderId, String holderName) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SellScreen(
           scale: scale,
           gatewayClient: widget.gatewayClient,
           coreApiClient: widget.coreApiClient,
+          holderId: holderId,
+          holderName: holderName,
         ),
       ),
     );
@@ -44,12 +46,18 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthState>().currentUser;
-    final isAdmin = user?.isAdmin ?? false;
+    if (user == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    final isAdmin = user.isAdmin;
 
     final tabs = <Widget>[
       ScalesScreen(
         client: widget.gatewayClient,
-        onSelectScale: _openSellScreen,
+        currentUserId: user.id,
+        currentUserName: user.displayName,
+        onSelectScale: (scale) =>
+            _openSellScreen(scale, user.id, user.displayName),
       ),
       const ReceiptScreen(),
       if (isAdmin) AdminUsersScreen(client: widget.coreApiClient),

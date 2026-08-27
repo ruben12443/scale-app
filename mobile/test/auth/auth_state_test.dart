@@ -1,192 +1,207 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
-import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:oidc/oidc.dart';
 import 'package:scale_app/auth/auth_service.dart';
 import 'package:scale_app/auth/auth_state.dart';
 import 'package:scale_app/models/user.dart';
 
-class FakeAuthService extends AuthService {
-  AuthSession loginResult = const AuthSession(
-    accessToken: 'access-1',
-    refreshToken: 'refresh-1',
+/// An unverified id_token JWT good enough for [OidcUser.fromIdToken] to
+/// parse: no keystore is passed, so the signature is never checked, only
+/// the claims are decoded.
+String _fakeIdToken(Map<String, dynamic> claims) {
+  String segment(Map<String, dynamic> json) =>
+      base64Url.encode(utf8.encode(jsonEncode(json))).replaceAll('=', '');
+  final header = segment({'alg': 'none', 'typ': 'JWT'});
+  final payload = segment({
+    'sub': 'test-subject',
+    'iss': 'https://zitadel.test',
+    ...claims,
+  });
+  return '$header.$payload.';
+}
+
+Future<OidcUser> _fakeOidcUser({
+  required String accessToken,
+  String? refreshToken,
+  Duration? expiresIn,
+  DateTime? creationTime,
+}) {
+  return OidcUser.fromIdToken(
+    token: OidcToken(
+      creationTime: creationTime ?? DateTime.now().toUtc(),
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+      idToken: _fakeIdToken(const {}),
+      expiresIn: expiresIn,
+    ),
   );
+}
+
+class FakeAuthService extends AuthService {
+  final _controller = StreamController<OidcUser?>.broadcast();
+  OidcUser? _current;
+
   int loginCalls = 0;
-  int refreshCalls = 0;
-  String? lastRefreshTokenUsed;
-  Object? refreshError;
+  int logoutCalls = 0;
+  int initCalls = 0;
+  OidcUser? Function()? loginResult;
+  Object? loginError;
 
   FakeAuthService()
     : super(
-        const AuthConfig(
+        AuthConfig(
           issuer: 'https://zitadel.test',
           clientId: 'test-client',
-          redirectUrl: 'com.scaleapp.scale_app:/callback',
+          redirectUri: Uri.parse('com.scaleapp.stallhand:/callback'),
         ),
       );
 
-  @override
-  Future<AuthSession> login() async {
-    loginCalls++;
-    return loginResult;
+  /// Seeds the "already restored from storage" case for [init].
+  Future<void> seedCurrentUser(OidcUser user) async {
+    _current = user;
   }
 
   @override
-  Future<AuthSession> refresh(String refreshToken) async {
-    refreshCalls++;
-    lastRefreshTokenUsed = refreshToken;
-    if (refreshError != null) throw refreshError!;
-    return AuthSession(
-      accessToken: 'access-refreshed',
-      refreshToken: refreshToken,
-    );
+  Stream<OidcUser?> get userChanges => _controller.stream;
+
+  @override
+  OidcUser? get currentUser => _current;
+
+  @override
+  Future<void> init() async {
+    initCalls++;
+  }
+
+  @override
+  Future<OidcUser?> login() async {
+    loginCalls++;
+    if (loginError != null) throw loginError!;
+    _current = loginResult != null
+        ? loginResult!()
+        : await _fakeOidcUser(
+            accessToken: 'access-1',
+            refreshToken: 'refresh-1',
+          );
+    _controller.add(_current);
+    return _current;
+  }
+
+  @override
+  Future<String?> ensureFreshAccessToken() async => _current?.token.accessToken;
+
+  @override
+  Future<void> logout() async {
+    logoutCalls++;
+    _current = null;
+    _controller.add(null);
   }
 }
 
+AppUser _testAppUser() => AppUser(
+  id: 'u1',
+  tenantId: 't1',
+  zitadelSubjectId: 'sub-1',
+  displayName: 'Jane',
+  email: 'jane@example.com',
+  role: 'vendor',
+  createdAt: DateTime.now(),
+);
+
 void main() {
-  late Map<String, String> storageData;
-  late FlutterSecureStorage storage;
-
-  setUp(() {
-    storageData = {};
-    FlutterSecureStoragePlatform.instance = TestFlutterSecureStoragePlatform(
-      storageData,
-    );
-    storage = const FlutterSecureStorage();
-  });
-
   group('AuthState.login', () {
-    test('stores the session and persists the refresh token', () async {
+    test('stores the session', () async {
       final fakeService = FakeAuthService();
-      final state = AuthState(fakeService, storage: storage);
+      final state = AuthState(fakeService);
 
       await state.login();
 
       expect(fakeService.loginCalls, 1);
       expect(state.accessToken, 'access-1');
-      expect(storageData['zitadel_refresh_token'], 'refresh-1');
     });
 
     test('isLoggedIn is false until a user profile is also set', () async {
-      final state = AuthState(FakeAuthService(), storage: storage);
+      final state = AuthState(FakeAuthService());
       await state.login();
       expect(state.isLoggedIn, isFalse);
 
-      state.setCurrentUser(
-        AppUser(
-          id: 'u1',
-          tenantId: 't1',
-          zitadelSubjectId: 'sub-1',
-          displayName: 'Jane',
-          email: 'jane@example.com',
-          role: 'vendor',
-          createdAt: DateTime.now(),
-        ),
-      );
+      state.setCurrentUser(_testAppUser());
       expect(state.isLoggedIn, isTrue);
     });
   });
 
   group('AuthState.tryRestoreSession', () {
-    test('returns false when no refresh token is stored', () async {
-      final state = AuthState(FakeAuthService(), storage: storage);
+    test('returns false when no session is persisted', () async {
+      final state = AuthState(FakeAuthService());
       expect(await state.tryRestoreSession(), isFalse);
     });
 
-    test('restores a session using the stored refresh token', () async {
-      storageData['zitadel_refresh_token'] = 'stored-refresh';
+    test('restores a persisted session via AuthService.init', () async {
       final fakeService = FakeAuthService();
-      final state = AuthState(fakeService, storage: storage);
+      await fakeService.seedCurrentUser(
+        await _fakeOidcUser(accessToken: 'restored-access'),
+      );
+      final state = AuthState(fakeService);
 
       final restored = await state.tryRestoreSession();
 
       expect(restored, isTrue);
-      expect(fakeService.lastRefreshTokenUsed, 'stored-refresh');
-      expect(state.accessToken, 'access-refreshed');
+      expect(fakeService.initCalls, 1);
+      expect(state.accessToken, 'restored-access');
     });
-
-    test(
-      'clears the stored token and returns false if refresh fails',
-      () async {
-        storageData['zitadel_refresh_token'] = 'stale-refresh';
-        final fakeService = FakeAuthService()
-          ..refreshError = Exception('invalid_grant');
-        final state = AuthState(fakeService, storage: storage);
-
-        final restored = await state.tryRestoreSession();
-
-        expect(restored, isFalse);
-        expect(storageData.containsKey('zitadel_refresh_token'), isFalse);
-      },
-    );
   });
 
   group('AuthState.ensureFreshAccessToken', () {
-    test(
-      'returns the current token without refreshing if not expired',
-      () async {
-        final fakeService = FakeAuthService()
-          ..loginResult = AuthSession(
-            accessToken: 'access-1',
-            refreshToken: 'refresh-1',
-            accessTokenExpiration: DateTime.now().add(const Duration(hours: 1)),
-          );
-        final state = AuthState(fakeService, storage: storage);
-        await state.login();
-
-        final token = await state.ensureFreshAccessToken();
-
-        expect(token, 'access-1');
-        expect(fakeService.refreshCalls, 0);
-      },
-    );
-
-    test('refreshes when the token is expired', () async {
-      final fakeService = FakeAuthService()
-        ..loginResult = AuthSession(
-          accessToken: 'access-1',
-          refreshToken: 'refresh-1',
-          accessTokenExpiration: DateTime.now().subtract(
-            const Duration(minutes: 1),
-          ),
-        );
-      final state = AuthState(fakeService, storage: storage);
+    test('returns the token AuthService reports', () async {
+      final fakeService = FakeAuthService();
+      final state = AuthState(fakeService);
       await state.login();
 
       final token = await state.ensureFreshAccessToken();
 
-      expect(token, 'access-refreshed');
-      expect(fakeService.refreshCalls, 1);
+      expect(token, 'access-1');
     });
 
     test('throws if not logged in', () async {
-      final state = AuthState(FakeAuthService(), storage: storage);
+      final state = AuthState(FakeAuthService());
       expect(() => state.ensureFreshAccessToken(), throwsStateError);
     });
   });
 
+  group('AuthState userChanges stream', () {
+    test(
+      'an out-of-band logout (e.g. background refresh failure) is reflected',
+      () async {
+        final fakeService = FakeAuthService();
+        final state = AuthState(fakeService);
+        await state.login();
+        state.setCurrentUser(_testAppUser());
+        expect(state.isLoggedIn, isTrue);
+
+        await fakeService.logout();
+        // The stream listener updates state asynchronously.
+        await Future<void>.delayed(Duration.zero);
+
+        expect(state.isLoggedIn, isFalse);
+        expect(state.accessToken, isNull);
+      },
+    );
+  });
+
   group('AuthState.logout', () {
-    test('clears the session, user, and stored refresh token', () async {
-      final state = AuthState(FakeAuthService(), storage: storage);
+    test('clears the session and user', () async {
+      final fakeService = FakeAuthService();
+      final state = AuthState(fakeService);
       await state.login();
-      state.setCurrentUser(
-        AppUser(
-          id: 'u1',
-          tenantId: 't1',
-          zitadelSubjectId: 'sub-1',
-          displayName: 'Jane',
-          email: 'jane@example.com',
-          role: 'vendor',
-          createdAt: DateTime.now(),
-        ),
-      );
+      state.setCurrentUser(_testAppUser());
 
       await state.logout();
 
+      expect(fakeService.logoutCalls, 1);
       expect(state.isLoggedIn, isFalse);
       expect(state.accessToken, isNull);
       expect(state.currentUser, isNull);
-      expect(storageData.containsKey('zitadel_refresh_token'), isFalse);
     });
   });
 }

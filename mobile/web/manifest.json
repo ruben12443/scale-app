@@ -1,0 +1,35 @@
+{
+    "name": "Stallhand",
+    "short_name": "Stallhand",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#E7E1D2",
+    "theme_color": "#2F5233",
+    "description": "Vendor point-of-sale app for scale-app market stalls: weigh, price, and receipt a sale against the stall's scale.",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}
